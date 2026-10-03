@@ -335,3 +335,34 @@ None while the `needs` edges stand; a future edit could detach the gate unnotice
 **References**
 - v1.0 review finding DEVOPS-005; WS-4 verification note
 
+## R-012 — Image signature verification: set the identity and roll out in order
+
+**Problem**
+`210` and `220` now refuse any image whose cosign signature and SLSA provenance do not verify
+against the repository variable `IMAGE_SIGNING_IDENTITY` (core `TODO.md` → T-703). Two things
+only a human can do: choose and set that identity, and sequence the roll-out. The identity is the
+core's `200-build-images` workflow subject —
+`https://github.com/<owner>/<core>/.github/workflows/200-build-images.yml@refs/heads/main` — and it
+changes whenever the core repository is renamed or moved (it moved once already, in 2026-09),
+the workflow file is renamed, or the default branch changes. Images the core built before its
+T-703 change carry no signature; that includes every rollback target recorded in
+`.deployment-catalog/` so far.
+
+**Required owner**
+Repository admin.
+
+**Required action**
+1. Merge the core's T-703 change first and let `200-build-images` publish one signed image set.
+2. Set `IMAGE_SIGNING_IDENTITY` to the core workflow subject above, with the core's **current**
+   owner and repository name; run `100-validate-prereqs`.
+3. Merge this change in both appliances. The first `210` after that must deploy the signed set;
+   a rollback to a pre-T-703 digest fails verification by design — roll forward instead.
+4. When the core is renamed or moved again, update the variable in both appliances before the
+   next deploy.
+
+**Impact if unresolved**
+With the variable unset, every `210` plan and every `220` run fails at the verification step
+(fail closed; nothing deploys). With a stale identity, the same.
+
+**References**
+- v1.0 review findings RELEASE-003, IMG-012; core `TODO.md` → T-703

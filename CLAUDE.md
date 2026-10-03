@@ -49,6 +49,15 @@ core and is mirrored into both appliances by the core's own `CLAUDE.md` rule:
   `CNA_AI_MODE` (`saas` | `byo-api`), `CNA_APPLIANCE_CLOUD` (`azure`),
   `CNA_AI_ENGINE_DEFAULT`, the SaaS engine variables (`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, `FOUNDRY_*`), and
   `CREDENTIAL_ENCRYPTION_KEY`.
+- Image signatures and provenance: the core's `200-build-images` signs every
+  published digest with cosign, keyless, under its workflow identity
+  (`https://github.com/<owner>/<core>/.github/workflows/200-build-images.yml@refs/heads/main`,
+  issuer `https://token.actions.githubusercontent.com`) and attaches BuildKit's
+  SLSA v0.2 provenance (`slsaprovenance02`, `builder.id` = the run URL). `210`
+  and `220` verify all of it with `scripts/ci/verify_image_signature.sh`
+  against the `IMAGE_SIGNING_IDENTITY` variable — the only place the trusted
+  identity lives — before any deploy; an unsigned or foreign image never
+  reaches a plan. `COSIGN_VERSION` is pinned identically here and in the core.
 
 ## Deployment rules
 

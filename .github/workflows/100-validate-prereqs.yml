@@ -101,6 +101,7 @@ jobs:
           TFSTATE_CONTAINER:         ${{ vars.TFSTATE_CONTAINER }}
           AZURE_REGION_SHORT:        ${{ vars.AZURE_REGION_SHORT }}
           DOCKERHUB_NAMESPACE:       ${{ vars.DOCKERHUB_NAMESPACE }}
+          IMAGE_SIGNING_IDENTITY:    ${{ vars.IMAGE_SIGNING_IDENTITY }}
           CNA_ENTRA_CLIENT_ID:       ${{ vars.CNA_ENTRA_CLIENT_ID }}
           AZURE_SUBSCRIPTION_ID:         ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           APPLICATION_INSIGHTS_NAME: ${{ vars.APPLICATION_INSIGHTS_NAME }}
@@ -159,6 +160,8 @@ jobs:
           check_var "TFSTATE_CONTAINER"       "$TFSTATE_CONTAINER"
           check_var "AZURE_REGION_SHORT"      "$AZURE_REGION_SHORT"
           check_var "DOCKERHUB_NAMESPACE"     "$DOCKERHUB_NAMESPACE"
+          # T-703: the core workflow identity 210/220 verify every image signature against.
+          check_var "IMAGE_SIGNING_IDENTITY" "$IMAGE_SIGNING_IDENTITY"
           check_var "CNA_ENTRA_CLIENT_ID"     "$CNA_ENTRA_CLIENT_ID"
           check_secret "AZURE_SUBSCRIPTION_ID" "$AZURE_SUBSCRIPTION_ID"
 
