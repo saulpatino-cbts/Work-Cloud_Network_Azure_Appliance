@@ -34,12 +34,12 @@ if [ -z "$ROLE" ] || [ -z "$REF" ]; then
 fi
 IDENTITY="${IMAGE_SIGNING_IDENTITY:-}"
 ISSUER="${SIGSTORE_OIDC_ISSUER:-}"
-IDENTITY_PATTERN='^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml@refs/heads/[A-Za-z0-9_./-]+$'
+IDENTITY_PATTERN='^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml@refs/heads/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$'
 if [ -z "$IDENTITY" ]; then
   echo "::error::IMAGE_SIGNING_IDENTITY variable is required: the core 200-build-images workflow identity, https://github.com/<owner>/<core>/.github/workflows/200-build-images.yml@refs/heads/main (README.md → Configuration)." >&2
   exit 1
 fi
-if ! [[ "$IDENTITY" =~ $IDENTITY_PATTERN ]]; then
+if ! [[ "$IDENTITY" =~ $IDENTITY_PATTERN ]] || [[ "$IDENTITY" == *"/../"* || "$IDENTITY" == *"/.." || "$IDENTITY" == *"/./"* ]]; then
   echo "::error::IMAGE_SIGNING_IDENTITY '${IDENTITY}' is not a GitHub Actions workflow identity (https://github.com/<owner>/<repo>/.github/workflows/<file>.yml@refs/heads/<branch>)." >&2
   exit 1
 fi
@@ -54,6 +54,9 @@ EXPECTED_BUILDER_PREFIX="${CORE_REPO_URL}/actions/runs/"
 EXPECTED_DIGEST=""
 if [[ "$REF" =~ @sha256:([0-9a-f]{64})$ ]]; then
   EXPECTED_DIGEST="${BASH_REMATCH[1]}"
+elif [[ "$REF" == *@* ]]; then
+  echo "::error::${ROLE} image reference '${REF}' has a malformed digest suffix (expected @sha256:<64 lowercase hex>)." >&2
+  exit 1
 else
   echo "::warning::${ROLE} image reference '${REF}' carries no digest; the signature and attestation are checked against whatever the tag resolves to right now."
 fi
@@ -61,11 +64,35 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# cosign 3 accepts exactly one proof of signing time per verification: an
+# RFC 3161 signed timestamp from Sigstore's TSA (`--use-signed-timestamps`,
+# required once the signing config points at Rekor v2) or Rekor v1's
+# integrated timestamp (the default). Both time sources come from the same
+# TUF-distributed trusted root, so either is an equally valid policy; the core
+# signs with the signing config of the day, so try the TSA form first and fall
+# back to the integrated timestamp. Identity, issuer and transparency-log
+# inclusion are enforced identically on both paths.
+cosign_verify_with_either_timestamp() {
+  local out="$1"; shift
+  if cosign "$@" --use-signed-timestamps > "$out" 2> "$WORK/stderr.tsa"; then
+    echo "  (verified with a signed timestamp)"
+    return 0
+  fi
+  if cosign "$@" > "$out" 2> "$WORK/stderr.tlog"; then
+    echo "  (verified with the transparency-log integrated timestamp)"
+    return 0
+  fi
+  echo "::error::${ROLE}: cosign ${1} failed for ${REF} with both timestamp policies." >&2
+  echo "--- --use-signed-timestamps:" >&2; cat "$WORK/stderr.tsa" >&2
+  echo "--- integrated timestamp:" >&2; cat "$WORK/stderr.tlog" >&2
+  return 1
+}
+
 echo "${ROLE}: verifying signature on ${REF}"
-cosign verify \
+cosign_verify_with_either_timestamp "$WORK/signatures.json" verify \
   --certificate-identity "$IDENTITY" \
   --certificate-oidc-issuer "$ISSUER" \
-  --output json "$REF" > "$WORK/signatures.json"
+  --output json "$REF"
 if [ "$(jq 'if type == "array" then length else 0 end' "$WORK/signatures.json")" -lt 1 ]; then
   echo "::error::${ROLE}: cosign reported no signature for ${REF}." >&2
   exit 1
@@ -77,11 +104,11 @@ if [ -n "$EXPECTED_DIGEST" ] && ! jq -e --arg d "sha256:${EXPECTED_DIGEST}" \
 fi
 
 echo "${ROLE}: verifying SLSA provenance attestation"
-cosign verify-attestation \
+cosign_verify_with_either_timestamp "$WORK/attestations.jsonl" verify-attestation \
   --type slsaprovenance02 \
   --certificate-identity "$IDENTITY" \
   --certificate-oidc-issuer "$ISSUER" \
-  "$REF" > "$WORK/attestations.jsonl"
+  "$REF"
 # One DSSE envelope per line; the in-toto statement is its base64 payload.
 : > "$WORK/statements.jsonl"
 while IFS= read -r payload; do
