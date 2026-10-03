@@ -95,3 +95,16 @@ core and is mirrored into both appliances by the core's own `CLAUDE.md` rule:
   pragma filter — a pragma comment does nothing).
 - Start with `TODO.md` when picking up work; check `REVIEW.md` when blocked on a
   human decision.
+- **Working a backlog item** (this `TODO.md`, or the appliance half of a core
+  `T-7xx`) follows the core's `.claude/orchestration/workflows.md` → W12 from a
+  session holding both appliance checkouts: spec → a specialist implements → a
+  *different* agent verifies → findings folded → checks → docs → draft PR;
+  humans merge. Shared files are edited once and copied byte-identically; the
+  delivery step diffs the sibling's hunks. Definition of done here, on the
+  final tree: `actionlint` on every changed workflow; `pre-commit run
+  detect-secrets --all-files` (stage the relocated `.secrets.baseline`);
+  `scripts/validate_documentation_model.py`; `terraform fmt -check -recursive`
+  and `terraform validate` on every root a Terraform change touches; the
+  sibling PR opened and linked, with the merge order when it matters. Never
+  merge, never `terraform apply`, never deploy — `210` under `hub` is the human
+  gate.
