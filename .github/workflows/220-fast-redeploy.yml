@@ -38,6 +38,16 @@ on:
         default: ""
         type: string
 
+env:
+  # Image signing (core TODO.md T-703): the exact Sigstore identity the core's
+  # 200-build-images signs with — from this repository variable only, never from
+  # the manifest, the dispatch payload or an input — the issuer every GitHub
+  # Actions signer shares, and the cosign release that verifies them (keep in
+  # step with the core's COSIGN_VERSION).
+  IMAGE_SIGNING_IDENTITY: ${{ vars.IMAGE_SIGNING_IDENTITY }}
+  SIGSTORE_OIDC_ISSUER: https://token.actions.githubusercontent.com
+  COSIGN_VERSION: v3.1.3
+
 permissions:
   id-token: write
   contents: read
@@ -103,6 +113,38 @@ jobs:
           [ -n "$INPUT_API_IMAGE" ] && { validate_image_ref api "$INPUT_API_IMAGE" || exit 1; }
           [ -n "$INPUT_WORKER_IMAGE" ] && { validate_image_ref worker "$INPUT_WORKER_IMAGE" || exit 1; }
           [ -n "$INPUT_WEB_IMAGE" ] && { validate_image_ref web "$INPUT_WEB_IMAGE" || exit 1; }
+          true
+
+      # Shared across both appliances (T-703) — keep byte-identical. 220 bypasses
+      # Terraform and the catalog but not the signature gate: every image it is
+      # about to roll must carry the core's keyless signature and provenance
+      # attestation (scripts/ci/verify_image_signature.sh, the same check 210
+      # runs). The checkout is for that script only.
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Verify image signatures and provenance
+        env:
+          INPUT_API_IMAGE: ${{ inputs.api_image }}
+          INPUT_WORKER_IMAGE: ${{ inputs.worker_image }}
+          INPUT_WEB_IMAGE: ${{ inputs.web_image }}
+          DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DOCKERHUB_NAMESPACE" || -z "$DOCKERHUB_TOKEN" ]]; then
+            echo "::error::DOCKERHUB_NAMESPACE and DOCKERHUB_TOKEN are required to read the image signatures from Docker Hub."
+            exit 1
+          fi
+          echo "$DOCKERHUB_TOKEN" | docker login docker.io --username "$DOCKERHUB_NAMESPACE" --password-stdin
+          [ -n "$INPUT_API_IMAGE" ]    && scripts/ci/verify_image_signature.sh api    "$INPUT_API_IMAGE"
+          [ -n "$INPUT_WORKER_IMAGE" ] && scripts/ci/verify_image_signature.sh worker "$INPUT_WORKER_IMAGE"
+          [ -n "$INPUT_WEB_IMAGE" ]    && scripts/ci/verify_image_signature.sh web    "$INPUT_WEB_IMAGE"
           true
 
       - name: Azure login with OIDC

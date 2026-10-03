@@ -154,6 +154,14 @@ env:
   EFFECTIVE_WORKER_IMAGE: ""
   EFFECTIVE_WEB_IMAGE: ""
   EFFECTIVE_MIGRATOR_IMAGE: ""
+  # Image signing (core TODO.md T-703): the exact Sigstore identity the core's
+  # 200-build-images signs with — from this repository variable only, never from
+  # the manifest, the dispatch payload or an input — the issuer every GitHub
+  # Actions signer shares, and the cosign release that verifies them (keep in
+  # step with the core's COSIGN_VERSION).
+  IMAGE_SIGNING_IDENTITY: ${{ vars.IMAGE_SIGNING_IDENTITY }}
+  SIGSTORE_OIDC_ISSUER: https://token.actions.githubusercontent.com
+  COSIGN_VERSION: v3.1.3
   # Bind untrusted/dispatch-supplied inputs to env once, workflow-wide, so no
   # run: block interpolates ${{ inputs.* }} into shell text (DEVOPS-001). Steps
   # reference the shell variables ($ENVIRONMENT, $AI_MODE, ...) instead.
@@ -337,6 +345,24 @@ jobs:
             echo "Checking $image"
             docker manifest inspect "$image" > /dev/null
           done
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      # Shared across both appliances (T-703) — keep byte-identical. Every image
+      # must carry a keyless signature and a SLSA provenance attestation from the
+      # core's 200-build-images identity (IMAGE_SIGNING_IDENTITY); an unsigned or
+      # foreign image stops the release here, before any plan. Runs right after
+      # the pull-access step so cosign reuses its `docker login`.
+      - name: Verify image signatures and provenance
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE"/scripts/ci/verify_image_signature.sh api      "$EFFECTIVE_API_IMAGE"
+          "$GITHUB_WORKSPACE"/scripts/ci/verify_image_signature.sh worker   "$EFFECTIVE_WORKER_IMAGE"
+          "$GITHUB_WORKSPACE"/scripts/ci/verify_image_signature.sh web      "$EFFECTIVE_WEB_IMAGE"
+          "$GITHUB_WORKSPACE"/scripts/ci/verify_image_signature.sh migrator "$EFFECTIVE_MIGRATOR_IMAGE"
 
       - name: Resolve Terraform backend targets
         env:
