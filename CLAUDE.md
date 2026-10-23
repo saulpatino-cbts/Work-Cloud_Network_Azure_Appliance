@@ -17,6 +17,34 @@ watch and tear down an environment. It runs container images built by the
   <https://github.com/saulpatinojr/Work-Cloud_Network_AWS_Appliance>. Do not add AWS
   Terraform, actions, secrets, regions or wording to this repository.
 
+## Cross-repo change notification (mandatory)
+
+The CNA platform is three repositories under `saulpatino-cbts`: the **core**,
+the **AWS appliance**, and this **Azure appliance**. A shared-surface change
+here (a workflow edit, a shared script, a catalog-schema change, a convention,
+a doc-structure change, a finding fix) **MUST notify the AWS appliance AND the
+core** — the AWS engineer must learn of it, and the core owns the contract.
+Notification is not optional and not implied:
+
+1. Write a handover note to the AWS appliance's `.reports/change-reports/`
+   (and the core's, if the change affects the contract) describing the change,
+   why it matters there, and the exact action needed (numbered steps). Whoever
+   works the AWS appliance does the same back toward this repo and the core.
+2. Surface the item on the shared board, **CNA Total Workboard**
+   (`https://github.com/users/saulpatino-cbts/projects/1`), and record it in the
+   cross-repo register `Work-Cloud_Network_Core/.reports/FINDINGS-REGISTER.md`.
+3. Then do the mirror itself (link the sibling PR) or add a `TODO.md` item naming
+   the sibling and the exact change.
+
+Cloud-specific edits (Terraform module bodies, OIDC login, state backend, Key
+Vault, fast-redeploy command, Azure OpenAI wiring, blob publish) stay inside
+this repo and need no sibling mirror — but if an edit touches anything else, it
+is shared-surface and the notification above is required.
+
+> Board write note: the board is owned by the `saulpatino-cbts` *user* account.
+> The `cna-workboard-bot` GitHub App can create issues but **cannot** write a
+> user-owned Projects v2 board; board writes use the owner's own token.
+
 ## The two appliances are identical — mirror every change
 
 This repository and the sibling are the same repository except for the
