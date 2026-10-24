@@ -33,15 +33,6 @@ jobs:
       - run: pip install pre-commit
       - name: detect-secrets against the baseline
         run: pre-commit run detect-secrets --all-files
-      - name: DIAGNOSTIC - show what CI's detect-secrets computes
-        if: always()
-        run: |
-          pip install "detect-secrets==1.5.0"
-          detect-secrets --version
-          echo "=== regenerate baseline line numbers/hashes as CI sees them ==="
-          detect-secrets scan --baseline .secrets.baseline --exclude-files '^(\.claude|\.agents|\.codex|\.deployment-catalog)/' || true
-          echo "=== full regenerated baseline results ==="
-          python -c "import json;b=json.load(open('.secrets.baseline'));[print(f, r['line_number'], r['hashed_secret']) for f,rs in b['results'].items() for r in rs]"
 
   repository-guardrails:
     name: Repository Guardrails
