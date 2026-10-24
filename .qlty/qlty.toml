@@ -1,0 +1,20 @@
+# Qlty Cloud / CLI analysis configuration.
+#
+# This is the Azure appliance: Terraform plus GitHub Actions workflows and CI
+# helper scripts. Vendored agent configuration (.claude/, .agents/, .codex/,
+# .kiro/) and the reports board (.reports/) are not project source and are
+# excluded from analysis, matching the core's qlty config. Patterns use Qlty's
+# glob syntax; the exclude list is the only key so the CLI defaults apply to
+# everything else (Terraform, YAML, PowerShell, Python helpers get analysed).
+config_version = "0"
+
+exclude_patterns = [
+  ".claude/**",
+  ".agents/**",
+  ".codex/**",
+  ".kiro/**",
+  ".reports/**",
+  ".deployment-catalog/**",
+  "**/.terraform/**",
+  "**/__pycache__/**",
+]
