@@ -206,7 +206,7 @@ jobs:
             exit 0
           fi
           RESPONSE=$(curl -s -X POST "https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token" \
-            -d "client_id=${CLIENT_ID}&client_secret=probe&grant_type=client_credentials&scope=https://graph.microsoft.com/.default" || echo "")  # pragma: allowlist secret  (literal dummy value "probe", not a credential)
+            -d "client_id=${CLIENT_ID}&client_secret=probe&grant_type=client_credentials&scope=https://graph.microsoft.com/.default" || echo "")
           if grep -q "AADSTS700016" <<<"$RESPONSE"; then
             echo "::error::CNA_ENTRA_CLIENT_ID ($CLIENT_ID) does not exist in tenant $TENANT_ID (AADSTS700016). The app registration was likely deleted and recreated — re-run scripts/Initialize-CnaGitHubSecrets.ps1 to refresh the variable and rotate CNA_ENTRA_CLIENT_SECRET, then redeploy."
             exit 1
