@@ -33,6 +33,25 @@ jobs:
       - run: pip install pre-commit
       - name: detect-secrets against the baseline
         run: pre-commit run detect-secrets --all-files
+      # TEMPORARY diagnostic (remove after refreshing .secrets.baseline): prints
+      # the authoritative filename/line_number/hashed_secret that CI computes, so
+      # the baseline line numbers can be corrected without a Windows local scan
+      # (which would rewrite paths to backslashes and break this gate).
+      - name: "TEMP detect-secrets authoritative values"
+        if: always()
+        run: |
+          pip install detect-secrets==1.5.0
+          detect-secrets scan --baseline .secrets.baseline \
+            --exclude-files '^(\.claude|\.agents|\.codex|\.deployment-catalog)/'
+          echo "----- baseline results after scan -----"
+          python3 - <<'PY'
+          import json
+          with open(".secrets.baseline") as f:
+              b = json.load(f)
+          for fn, items in b.get("results", {}).items():
+              for it in items:
+                  print(f"{fn} | line {it['line_number']} | {it['hashed_secret']} | {it['type']}")
+          PY
 
   repository-guardrails:
     name: Repository Guardrails
