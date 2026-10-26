@@ -23,15 +23,11 @@ variable "tenant_id" {
   default     = "00000000-0000-0000-0000-000000000000"
 }
 
-variable "location" {
-  description = "Azure region for the CNA Platform deployment, e.g. eastus or westeurope. You must set this; there is no default so no region is ever assumed for you. See the Azure regions list: https://learn.microsoft.com/azure/reliability/regions-list"
-  type        = string
-
-  validation {
-    condition     = length(trimspace(var.location)) > 0
-    error_message = "Set location to your chosen Azure region (for example eastus). It has no default on purpose."
-  }
-}
+# NOTE: var.location is intentionally NOT declared in the workload root. The
+# workload's resource names derive from project_name + environment + region_short
+# (see locals.tf); the region itself is a platform-root concern. Declaring it here
+# as a required variable only forced every workload plan to pass an otherwise
+# unused value. The platform root owns var.location.
 
 variable "region_short" {
   description = "Short code for your region, used inside resource names so they stay readable and unique, e.g. eus for eastus or weu for westeurope. You choose it; there is no default."
@@ -241,31 +237,12 @@ variable "secret_expiration_date" {
   description = "RFC3339 expiry for Terraform-managed KV secrets. Must satisfy Enforce-GR-KeyVault (max 90 days from now). Computed dynamically in CI via 'date -u -d +90days'. No default: a stale hardcoded fallback silently becomes policy-violating once it ages past the 90-day window, so every apply (CI or manual) must pass a freshly computed value."
   type        = string
 }
-variable "tfstate_resource_group" {
-  description = "Resource group that holds your Terraform remote state backend (kept separate from the workload resource group to avoid backend/self-destroy lifecycle problems). The 000-bootstrap-backend workflow creates it. You must set this; there is no default so it never points at someone else's state."
-  type        = string
+# NOTE: the Terraform state backend (resource group, storage account, container)
+# is supplied to `terraform init` as -backend-config by the deploy and drift
+# workflows, NOT as Terraform input variables. Declaring tfstate_* here as
+# required workload variables only forced every workload plan to pass values the
+# configuration never reads. They are intentionally not declared in this root.
 
-  validation {
-    condition     = length(trimspace(var.tfstate_resource_group)) > 0
-    error_message = "Set tfstate_resource_group to the resource group that holds your Terraform state (for example rg-cna-dev-eus-tfstate). It has no default on purpose."
-  }
-}
-
-variable "tfstate_storage_account" {
-  description = "Storage account that holds your Terraform remote state container. Azure storage account names are globally unique, 3-24 lowercase letters/digits, so this must be your own. The 000-bootstrap-backend workflow creates it. You must set this; there is no default."
-  type        = string
-
-  validation {
-    condition     = can(regex("^[a-z0-9]{3,24}$", var.tfstate_storage_account))
-    error_message = "Set tfstate_storage_account to your own globally unique name: 3-24 lowercase letters/digits, e.g. stcnadeveus<something>."
-  }
-}
-
-variable "tfstate_container" {
-  description = "Blob container name within the tfstate storage account."
-  type        = string
-  default     = "tfstate"
-}
 variable "frontdoor_certificate_pfx_path" {
   description = "File path to the PFX certificate for Front Door"
   type        = string

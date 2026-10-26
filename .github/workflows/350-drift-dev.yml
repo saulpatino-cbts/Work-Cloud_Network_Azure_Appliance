@@ -212,6 +212,8 @@ jobs:
         # Secrets passed via TF_VAR_* env so they never appear in the process
         # listing / logs (unlike -var= on the command line).
         env:
+          # region_short has no default and is used by the workload root (name_prefix).
+          TF_VAR_region_short: ${{ vars.AZURE_REGION_SHORT }}
           TF_VAR_postgres_admin_password: ${{ secrets.CNA_POSTGRES_ADMIN_PASSWORD }}
           TF_VAR_entra_client_secret: ${{ secrets.CNA_ENTRA_CLIENT_SECRET }}
           TF_VAR_nextauth_secret: ${{ secrets.CNA_NEXTAUTH_SECRET }}
