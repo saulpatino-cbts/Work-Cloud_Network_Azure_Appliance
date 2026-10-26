@@ -18,14 +18,14 @@ on:
           - dev
           - prod
       location:
-        description: Azure region for the workload RG and tfstate backend
+        description: "Azure region for the workload resource group and tfstate backend, e.g. eastus (no default on purpose; see https://learn.microsoft.com/azure/reliability/regions-list)"
         required: true
-        default: southcentralus
+        default: ""
         type: string
       region_short:
-        description: Short region code used in workload RG naming
+        description: "Short lowercase code for your region used in resource names, e.g. eus for eastus (no default on purpose)"
         required: true
-        default: scus
+        default: ""
         type: string
       tfstate_resource_group:
         description: Terraform state resource group name (default rg-cna-<environment>-<region_short>-tfstate)

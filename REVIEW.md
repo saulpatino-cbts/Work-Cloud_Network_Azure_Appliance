@@ -146,7 +146,7 @@ sweep policy.
 1. Establish whether a sweep policy exists for this subscription, what it targets, and on what
    schedule.
 2. If the environment should persist: apply a `CanNotDelete` resource lock to
-   `rg-cna-dev-scus` and `rg-cna-dev-scus-tfstate` at minimum — the state RG especially, since
+   `rg-cna-<env>-<region_short>` and `rg-cna-<env>-<region_short>-tfstate` at minimum — the state RG especially, since
    losing it is what turned a redeploy into a rebuild — or request an exclusion from the sweep.
 3. If the environment is legitimately ephemeral: record that in the demo/engagement runbook so a
    rebuild is planned rather than discovered, and consider whether the tfstate backend should live

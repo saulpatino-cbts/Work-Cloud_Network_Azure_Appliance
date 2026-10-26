@@ -13,9 +13,15 @@ param(
 
     [switch]$SkipAzureSetup,
 
-    [string]$BootstrapLocation = "southcentralus",
+    # Your Azure region. No default on purpose, so no region is ever assumed for
+    # you. Pass -BootstrapLocation, or leave it blank and the script will ask.
+    # Azure regions: https://learn.microsoft.com/azure/reliability/regions-list
+    [string]$BootstrapLocation = "",
 
-    [string]$BootstrapRegionShort = "scus",
+    # Short lowercase code for your region (e.g. eus for eastus), used in resource
+    # names. No default on purpose. Pass -BootstrapRegionShort, or leave it blank
+    # and the script will ask.
+    [string]$BootstrapRegionShort = "",
 
     [string]$ReportDirectory = ".reports/bootstrap",
 
@@ -1764,6 +1770,20 @@ $federatedCredentialSubjects = [System.Collections.Generic.List[string]]::new()
 $bootstrapWorkloadResourceGroup = ""
 $workloadResourceGroupScope = ""
 $bootstrapWorkloadResourceGroupStatus = "not-run"
+
+# Region is never assumed for you. If you did not pass -BootstrapLocation /
+# -BootstrapRegionShort, ask now, before any value is used. These feed your
+# resource-group names, the tfstate backend and the GitHub variables below.
+Write-Step "Choosing your Azure region"
+if ([string]::IsNullOrWhiteSpace($BootstrapLocation)) {
+    Write-Info "Pick any region from https://learn.microsoft.com/azure/reliability/regions-list"
+    $BootstrapLocation = Read-TextValue -Name "BootstrapLocation" -Prompt "Azure region (e.g. eastus)" -Required
+}
+if ([string]::IsNullOrWhiteSpace($BootstrapRegionShort)) {
+    Write-Info "Pick a short lowercase code for that region; it goes into resource names."
+    $BootstrapRegionShort = Read-TextValue -Name "BootstrapRegionShort" -Prompt "Short region code (e.g. eus for eastus)" -Required
+}
+Write-Ok "Region: $BootstrapLocation (short code: $BootstrapRegionShort)"
 
 if (-not $SkipAzureSetup) {
     Write-Step "Preparing Azure OIDC app registration"
