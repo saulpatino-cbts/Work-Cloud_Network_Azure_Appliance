@@ -1774,14 +1774,28 @@ $bootstrapWorkloadResourceGroupStatus = "not-run"
 # Region is never assumed for you. If you did not pass -BootstrapLocation /
 # -BootstrapRegionShort, ask now, before any value is used. These feed your
 # resource-group names, the tfstate backend and the GitHub variables below.
+#
+# Normalize (trim + lowercase) and validate against the SAME contracts the
+# Terraform variables enforce, so a bad value is caught here -- before any
+# resource group or state backend is created -- instead of failing a later plan.
+#   location     : lowercase letters/digits (e.g. eastus)
+#   region_short : ^[a-z0-9]{2,8}$ (e.g. eus) -- mirrors variables.tf
 Write-Step "Choosing your Azure region"
-if ([string]::IsNullOrWhiteSpace($BootstrapLocation)) {
+$BootstrapLocation = $BootstrapLocation.Trim().ToLowerInvariant()
+while ($BootstrapLocation -notmatch '^[a-z0-9]+$') {
+    if (-not [string]::IsNullOrWhiteSpace($BootstrapLocation)) {
+        Write-Warn "'$BootstrapLocation' is not a valid Azure region id (lowercase letters/digits, e.g. eastus)."
+    }
     Write-Info "Pick any region from https://learn.microsoft.com/azure/reliability/regions-list"
-    $BootstrapLocation = Read-TextValue -Name "BootstrapLocation" -Prompt "Azure region (e.g. eastus)" -Required
+    $BootstrapLocation = (Read-TextValue -Name "BootstrapLocation" -Prompt "Azure region (e.g. eastus)" -Required).Trim().ToLowerInvariant()
 }
-if ([string]::IsNullOrWhiteSpace($BootstrapRegionShort)) {
+$BootstrapRegionShort = $BootstrapRegionShort.Trim().ToLowerInvariant()
+while ($BootstrapRegionShort -notmatch '^[a-z0-9]{2,8}$') {
+    if (-not [string]::IsNullOrWhiteSpace($BootstrapRegionShort)) {
+        Write-Warn "'$BootstrapRegionShort' is not a valid short code (2-8 lowercase letters/digits, no hyphens, e.g. eus)."
+    }
     Write-Info "Pick a short lowercase code for that region; it goes into resource names."
-    $BootstrapRegionShort = Read-TextValue -Name "BootstrapRegionShort" -Prompt "Short region code (e.g. eus for eastus)" -Required
+    $BootstrapRegionShort = (Read-TextValue -Name "BootstrapRegionShort" -Prompt "Short region code (e.g. eus for eastus)" -Required).Trim().ToLowerInvariant()
 }
 Write-Ok "Region: $BootstrapLocation (short code: $BootstrapRegionShort)"
 
