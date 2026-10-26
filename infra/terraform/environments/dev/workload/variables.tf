@@ -23,16 +23,20 @@ variable "tenant_id" {
   default     = "00000000-0000-0000-0000-000000000000"
 }
 
-variable "location" {
-  description = "Azure region for CNA Platform deployment"
-  type        = string
-  default     = "southcentralus"
-}
+# NOTE: var.location is intentionally NOT declared in the workload root. The
+# workload's resource names derive from project_name + environment + region_short
+# (see locals.tf); the region itself is a platform-root concern. Declaring it here
+# as a required variable only forced every workload plan to pass an otherwise
+# unused value. The platform root owns var.location.
 
 variable "region_short" {
-  description = "Short region code used in resource names (e.g. scus, eus2, wus2)"
+  description = "Short code for your region, used inside resource names so they stay readable and unique, e.g. eus for eastus or weu for westeurope. You choose it; there is no default."
   type        = string
-  default     = "scus"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]{2,8}$", var.region_short))
+    error_message = "Set region_short to a short lowercase code (2-8 letters/digits), for example eus for East US."
+  }
 }
 
 variable "environment" {
@@ -233,23 +237,12 @@ variable "secret_expiration_date" {
   description = "RFC3339 expiry for Terraform-managed KV secrets. Must satisfy Enforce-GR-KeyVault (max 90 days from now). Computed dynamically in CI via 'date -u -d +90days'. No default: a stale hardcoded fallback silently becomes policy-violating once it ages past the 90-day window, so every apply (CI or manual) must pass a freshly computed value."
   type        = string
 }
-variable "tfstate_resource_group" {
-  description = "Resource group hosting the Terraform remote state backend (kept separate from the workload RG to avoid backend/self-destroy lifecycle problems)."
-  type        = string
-  default     = "rg-cna-dev-scus-tfstate"
-}
+# NOTE: the Terraform state backend (resource group, storage account, container)
+# is supplied to `terraform init` as -backend-config by the deploy and drift
+# workflows, NOT as Terraform input variables. Declaring tfstate_* here as
+# required workload variables only forced every workload plan to pass values the
+# configuration never reads. They are intentionally not declared in this root.
 
-variable "tfstate_storage_account" {
-  description = "Storage account hosting the Terraform remote state container."
-  type        = string
-  default     = "stcna0512f9tfstate"
-}
-
-variable "tfstate_container" {
-  description = "Blob container name within the tfstate storage account."
-  type        = string
-  default     = "tfstate"
-}
 variable "frontdoor_certificate_pfx_path" {
   description = "File path to the PFX certificate for Front Door"
   type        = string

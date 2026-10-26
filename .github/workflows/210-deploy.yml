@@ -802,6 +802,8 @@ jobs:
         continue-on-error: true
         working-directory: infra/terraform/environments/${{ inputs.environment }}/workload
         env:
+          # region_short has no default and is used by the workload root (name_prefix).
+          TF_VAR_region_short: ${{ vars.AZURE_REGION_SHORT }}
           VAR_AI_ENGINE_DEFAULT: ${{ vars.CNA_AI_ENGINE_DEFAULT }}
           VAR_AWS_MCP_ENDPOINT: ${{ vars.CNA_AWS_MCP_ENDPOINT }}
           VAR_AWS_MCP_TRANSPORT: ${{ vars.CNA_AWS_MCP_TRANSPORT }}
@@ -1250,6 +1252,11 @@ jobs:
       - name: Terraform plan (workload) — post-platform
         working-directory: infra/terraform/environments/${{ inputs.environment }}/workload
         env:
+          # region_short is used by the workload root (locals.tf name_prefix) and
+          # has no default, so it must be supplied. TF_VAR_* is read automatically
+          # by terraform plan. The tfstate_* backend values are passed to
+          # `terraform init` as -backend-config, not as variables.
+          TF_VAR_region_short: ${{ vars.AZURE_REGION_SHORT }}
           VAR_AI_ENGINE_DEFAULT: ${{ vars.CNA_AI_ENGINE_DEFAULT }}
           VAR_AWS_MCP_ENDPOINT: ${{ vars.CNA_AWS_MCP_ENDPOINT }}
           VAR_AWS_MCP_TRANSPORT: ${{ vars.CNA_AWS_MCP_TRANSPORT }}

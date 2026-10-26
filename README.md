@@ -1,15 +1,15 @@
 # Cloud Network Assessment (CNA) — Azure Appliance
 
-[![Validate](https://github.com/saulpatinojr/Work-Cloud_Network_Azure_Appliance/actions/workflows/300-validate.yml/badge.svg)](https://github.com/saulpatinojr/Work-Cloud_Network_Azure_Appliance/actions/workflows/300-validate.yml)
+[![Validate](https://github.com/saulpatino-cbts/Work-Cloud_Network_Azure_Appliance/actions/workflows/300-validate.yml/badge.svg)](https://github.com/saulpatino-cbts/Work-Cloud_Network_Azure_Appliance/actions/workflows/300-validate.yml)
 
 This repository deploys and operates the **Cloud Network Assessment platform on Azure**.
 It contains the Azure Terraform and the workflows that deploy, update, watch and tear
 down an environment — and nothing else. The application itself (web, API, worker, CLI) lives in
-the **core** repository, [`Work-Cloud_Network_Core`](https://github.com/saulpatinojr/Work-Cloud_Network_Core),
+the **core** repository, [`Work-Cloud_Network_Core`](https://github.com/saulpatino-cbts/Work-Cloud_Network_Core),
 which builds the container images this appliance runs. Features ship once, in those images; this
 appliance picks them up.
 
-Its sibling, [`Work-Cloud_Network_AWS_Appliance`](https://github.com/saulpatinojr/Work-Cloud_Network_AWS_Appliance), does the same
+Its sibling, [`Work-Cloud_Network_AWS_Appliance`](https://github.com/saulpatino-cbts/Work-Cloud_Network_AWS_Appliance), does the same
 for AWS. **The two appliances are identical** — same file names, workflow numbers and
 inputs, release-catalog schema, scripts and documents — except for the cloud-specific parts listed
 below. If you change something here that is not on that list, change it in the sibling too.
@@ -23,7 +23,7 @@ below. If you change something here that is not on that list, change it in the s
 | `infra/terraform/` — Azure modules and the `dev` / `prod` environment roots (platform + workload, split state) | Application code — `apps/`, `cna/`, Dockerfiles (core) |
 | `.github/workflows/` — bootstrap, validate, deploy, fast redeploy, image update, publish, teardown, key sync, drift | Image builds — `200-build-images.yml` (core) |
 | `.deployment-catalog/{dev,prod}/` — the release catalog every deploy writes (images, `ai_mode`, evidence) | Anything for AWS |
-| `scripts/` — bootstrap and CI evidence helpers | Long-form documentation — the core's [Wiki](https://github.com/saulpatinojr/Work-Cloud_Network_Core/wiki) |
+| `scripts/` — bootstrap and CI evidence helpers | Long-form documentation — the core's [Wiki](https://github.com/saulpatino-cbts/Work-Cloud_Network_Core/wiki) |
 
 ### Identical to the sibling, except
 
@@ -178,7 +178,7 @@ The core's `.env.example` is the complete inventory of every runtime variable th
 - **Four documents plus `CLAUDE.md`, one wiki.** `scripts/validate_documentation_model.py`
   enforces it in `300`. Long-form documentation lives in the core's Wiki.
 - **Mirror the sibling.** Any change outside the cloud-specific table above is made in
-  [`Work-Cloud_Network_AWS_Appliance`](https://github.com/saulpatinojr/Work-Cloud_Network_AWS_Appliance) in the same change set.
+  [`Work-Cloud_Network_AWS_Appliance`](https://github.com/saulpatino-cbts/Work-Cloud_Network_AWS_Appliance) in the same change set.
   Never introduce AWS content here.
 - **Numbered workflows in bands** (`000` bootstrap, `100` validation, `200` deploy/update, `300`
   validate and operations). Numbers are stable across the core and both appliances — never renumber.
@@ -192,4 +192,4 @@ The core's `.env.example` is the complete inventory of every runtime variable th
 
 ---
 
-*Maintained by Saul Patino Jr. — AWS SA Professional | Azure Solutions Architect Expert*
+*Maintained by CBTS.*
