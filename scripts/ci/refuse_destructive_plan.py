@@ -22,6 +22,7 @@ Environment:
   PLAN_LABEL                optional name for messages (e.g. "dev/workload").
   PROTECTED_RESOURCE_ADDRESSES  optional comma-separated exact Terraform resource
                                addresses, independent of protected types.
+                               Quoted instance keys are unsupported and refused.
 
 Exit status is 0 when no protected resource is destroyed, 1 otherwise; output is
 plain text so it reads well in a workflow log.
@@ -36,9 +37,13 @@ import sys
 
 def main() -> int:
     types = {t.strip() for t in os.environ.get("PROTECTED_RESOURCE_TYPES", "").split(",") if t.strip()}
+    raw_addresses = os.environ.get("PROTECTED_RESOURCE_ADDRESSES", "")
+    if '"' in raw_addresses:
+        print("::error::PROTECTED_RESOURCE_ADDRESSES does not support quoted instance keys; use protected resource types.", file=sys.stderr)
+        return 1
     addresses = {
         address.strip()
-        for address in os.environ.get("PROTECTED_RESOURCE_ADDRESSES", "").split(",")
+        for address in raw_addresses.split(",")
         if address.strip()
     }
     label = os.environ.get("PLAN_LABEL", "plan")

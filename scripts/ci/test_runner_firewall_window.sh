@@ -45,6 +45,12 @@ reject() {
     echo "Expected failure: $*" >&2; exit 1
   fi
 }
+absent() {
+  if grep -q "$@"; then
+    echo "Unexpected mocked operation matched: $1" >&2
+    exit 1
+  fi
+}
 reset
 bash "$ROOT/scripts/ci/runner_firewall_window.sh" cleanup
 grep -q 'operation Delete' "$TMP/calls"
@@ -54,11 +60,11 @@ MOCK_FAIL=once bash "$ROOT/scripts/ci/runner_firewall_window.sh" cleanup
 [[ "$(cat "$TMP/attempts")" -ge 3 ]]
 reset
 reject env MOCK_FAIL=always bash "$ROOT/scripts/ci/runner_firewall_window.sh" cleanup
-! grep -q 'operation Delete' "$TMP/calls"
+absent 'operation Delete' "$TMP/calls"
 [[ "$(cat "$TMP/attempts")" == 6 ]]
 reset
 reject env MOCK_STALE=true bash "$ROOT/scripts/ci/runner_firewall_window.sh" cleanup
-! grep -q 'operation Delete' "$TMP/calls"
+absent 'operation Delete' "$TMP/calls"
 reset
 # Simulate a new job after hard termination: journal survives, runner state does not.
 bash "$ROOT/scripts/ci/runner_firewall_window.sh" prepare
@@ -68,7 +74,7 @@ grep -Fxq 'TF_VAR_deploy_runner_ip=192.0.2.10' "$TMP/env"
 reset
 printf '["cna-dev-eus2-aif2"]' > "$TMP/accounts"
 reject bash "$ROOT/scripts/ci/runner_firewall_window.sh" prepare
-! grep -q 'operation Merge' "$TMP/calls"
+absent 'operation Merge' "$TMP/calls"
 reset
 printf '["cna-dev-eus2-aif2"]' > "$TMP/accounts"
 TF_VAR_foundry_account_name=cna-dev-eus2-aif2 TF_VAR_foundry_project_name=client-existing-project \
@@ -81,18 +87,18 @@ reset
 printf '[{"id":"/vault","name":"cna-dev-eus2-kv","tags":{}}]' > "$TMP/vaults"
 printf '[]' > "$TMP/storage"
 reject bash "$ROOT/scripts/ci/runner_firewall_window.sh" prepare
-! grep -q 'network-rule remove' "$TMP/calls"
-! grep -q 'operation Merge' "$TMP/calls"
+absent 'network-rule remove' "$TMP/calls"
+absent 'operation Merge' "$TMP/calls"
 reset
 printf 'not-json' > "$TMP/vaults"
 printf '[]' > "$TMP/storage"
 reject bash "$ROOT/scripts/ci/runner_firewall_window.sh" cleanup
-! grep -q 'operation Delete' "$TMP/calls"
+absent 'operation Delete' "$TMP/calls"
 reset
 printf '[{"id":"/vault","name":"cna-dev-eus2-kv","tags":{"CnaRunnerIp":"invalid"}}]' > "$TMP/vaults"
 printf '[]' > "$TMP/storage"
 reject bash "$ROOT/scripts/ci/runner_firewall_window.sh" cleanup
-! grep -q 'network-rule remove' "$TMP/calls"
+absent 'network-rule remove' "$TMP/calls"
 reset
 printf '["cna-dev-eus2-aif2"]' > "$TMP/accounts"
 reject env TF_VAR_foundry_account_name=cna-dev-eus2-aif2 TF_VAR_foundry_project_name=wrong-project \
@@ -109,14 +115,14 @@ reject env TF_VAR_foundry_account_name=cna-dev-eus2-aif2 TF_VAR_foundry_project_
   bash "$ROOT/scripts/ci/runner_firewall_window.sh" prepare
 reset
 RUNNER_STORAGE_ACCOUNT=clientstorage bash "$ROOT/scripts/ci/runner_firewall_window.sh" prepare
-! grep -q '^keyvault ' "$TMP/calls"
-! grep -q '^cognitiveservices ' "$TMP/calls"
+absent '^keyvault ' "$TMP/calls"
+absent '^cognitiveservices ' "$TMP/calls"
 [[ "$(grep -c 'operation Delete' "$TMP/calls")" == 1 ]]
 [[ "$(grep -c 'operation Merge' "$TMP/calls")" == 1 ]]
 reset
 reject env RUNNER_STORAGE_ACCOUNT=foreignstorage bash "$ROOT/scripts/ci/runner_firewall_window.sh" prepare
-! grep -q 'operation Merge' "$TMP/calls"
+absent 'operation Merge' "$TMP/calls"
 reset
 reject env RUNNER_STORAGE_ACCOUNT=clientstorage MOCK_FAIL=always bash "$ROOT/scripts/ci/runner_firewall_window.sh" cleanup
-! grep -q 'operation Delete' "$TMP/calls"
+absent 'operation Delete' "$TMP/calls"
 echo "Runner firewall lease regression tests passed (17 scenarios, including project name/identity mismatch, absence and scoped portal lifecycle)."

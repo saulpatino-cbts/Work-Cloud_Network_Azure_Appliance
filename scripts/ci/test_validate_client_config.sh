@@ -17,6 +17,11 @@ export CNA_CREDENTIAL_ENCRYPTION_KEY
 CNA_CREDENTIAL_ENCRYPTION_KEY="$(printf '%032d' 0 | base64 | tr -d '\r\n')"
 export GH_APP_ID=123 GH_APP_PRIVATE_KEY=synthetic-test-only AI_MODE=saas FOUNDRY_LOCATION=westeurope
 unset LOCAL_ADMIN_PASSWORD
+ENV_FILE="$(mktemp)"
+CATALOG_DIR="$(mktemp -d)"
+EMPTY_WORKSPACE="$(mktemp -d)"
+trap 'rm -f -- "$ENV_FILE"; rm -rf -- "$CATALOG_DIR" "$EMPTY_WORKSPACE"' EXIT
+export GITHUB_WORKSPACE="$EMPTY_WORKSPACE"
 
 expect_failure() {
   local name="$1"
@@ -27,8 +32,11 @@ expect_failure() {
   fi
 }
 for mode in bootstrap deploy refresh teardown drift; do bash "$GUARD" "$mode"; done
+punctuation_fixture='synthetic<test>only'
+env CNA_ENTRA_CLIENT_SECRET="$punctuation_fixture" DOCKERHUB_TOKEN="$punctuation_fixture" bash "$GUARD" deploy
 expect_failure "placeholder tenant" env ARM_TENANT_ID=00000000-0000-0000-0000-000000000000 bash "$GUARD" deploy
 expect_failure "placeholder secret" env CNA_ENTRA_CLIENT_SECRET=PLACEHOLDER bash "$GUARD" deploy
+expect_failure "non-secret angle brackets" env DOCKERHUB_NAMESPACE='upstream<test>' bash "$GUARD" deploy
 expect_failure "placeholder domain" env CNA_NEXTAUTH_URL=https://cna.example.com bash "$GUARD" deploy
 expect_failure "cross-environment backend" env TFSTATE_RESOURCE_GROUP=rg-cna-prod-weu-tfstate bash "$GUARD" deploy
 expect_failure "plaintext break glass" env LOCAL_ADMIN_PASSWORD=not-a-hash bash "$GUARD" deploy
@@ -45,9 +53,6 @@ expect_failure "wildcard BYO approval" env AI_MODE=byo-api CNA_AI_ENGINE_DEFAULT
 expect_failure "unapproved engine" env AI_MODE=byo-api CNA_AI_ENGINE_DEFAULT=anthropic CNA_BYO_AI_PROVIDERS='["openai"]' bash "$GUARD" deploy
 expect_failure "duplicate BYO approval" env AI_MODE=byo-api CNA_AI_ENGINE_DEFAULT=openai CNA_BYO_AI_PROVIDERS='["openai","openai"]' bash "$GUARD" deploy
 env AI_MODE=byo-api CNA_AI_ENGINE_DEFAULT=openai CNA_BYO_AI_PROVIDERS='["openai"]' bash "$GUARD" deploy
-ENV_FILE="$(mktemp)"
-CATALOG_DIR="$(mktemp -d)"
-trap 'rm -f -- "$ENV_FILE"; rm -rf -- "$CATALOG_DIR"' EXIT
 mkdir -p "$CATALOG_DIR/.deployment-catalog/dev"
 printf '{"ai_mode":"saas"}' > "$CATALOG_DIR/.deployment-catalog/dev/latest.json"
 expect_failure "existing Foundry names required" env GITHUB_WORKSPACE="$CATALOG_DIR" FOUNDRY_ACCOUNT_NAME= FOUNDRY_PROJECT_NAME= bash "$GUARD" deploy

@@ -58,7 +58,7 @@ jobs:
             local name="$1"
             local value="$2"
             local scope="${3:-all workflows}"
-            if [[ -z "$value" || "${value,,}" == *placeholder* || "${value,,}" == *changeme* || "$value" == *'<'* || "$value" == *'>'* ]]; then
+            if [[ -z "$value" || "${value,,}" == *placeholder* || "${value,,}" == *changeme* ]]; then
               if [[ "$scope" == "all workflows" ]]; then
                 echo "| \`$name\` | $scope | ❌ Missing |" >> "$GITHUB_STEP_SUMMARY"
                 echo "::error::Secret $name is not set"

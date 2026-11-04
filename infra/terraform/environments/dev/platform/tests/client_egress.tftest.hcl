@@ -26,6 +26,22 @@ variables {
   fixture_name       = "cna-local-admin-password"
 }
 
+run "malformed_tenant_uuid_rejected" {
+  command = plan
+  variables {
+    tenant_id = "------------------------------------"
+  }
+  expect_failures = [var.tenant_id]
+}
+
+run "zero_tenant_uuid_rejected" {
+  command = plan
+  variables {
+    tenant_id = "00000000-0000-0000-0000-000000000000"
+  }
+  expect_failures = [var.tenant_id]
+}
+
 run "saas_closes_public_byo_egress" {
   command = plan
   variables {

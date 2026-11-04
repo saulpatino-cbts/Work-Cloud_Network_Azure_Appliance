@@ -2,7 +2,7 @@ variable "tenant_id" {
   description = "Azure tenant ID"
   type        = string
   validation {
-    condition     = can(regex("^[0-9a-fA-F-]{36}$", var.tenant_id)) && var.tenant_id != "00000000-0000-0000-0000-000000000000"
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.tenant_id)) && var.tenant_id != "00000000-0000-0000-0000-000000000000"
     error_message = "Supply the client tenant UUID, not a placeholder."
   }
 }
