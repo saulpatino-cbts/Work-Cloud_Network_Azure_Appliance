@@ -29,6 +29,7 @@ resource "azurerm_key_vault" "this" {
   network_acls {
     bypass         = "AzureServices"
     default_action = "Deny"
+    ip_rules       = var.bootstrap_ip_rules
   }
 
   # The transient runner IP is added/removed imperatively by the workflows; it
@@ -54,12 +55,6 @@ resource "azurerm_role_assignment" "terraform_key_vault_officer" {
 # module.compute for Container App IDs, a circular dependency. Placing them in
 # identity lets every downstream module (compute, security, runtime) safely
 # depend on identity's RBAC-gated outputs without any cycle.
-resource "azurerm_role_assignment" "managed_identity_key_vault_officer" {
-  scope                = azurerm_key_vault.this.id
-  role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = azurerm_user_assigned_identity.this.principal_id
-}
-
 resource "azurerm_role_assignment" "managed_identity_key_vault_secrets_user" {
   scope                = azurerm_key_vault.this.id
   role_definition_name = "Key Vault Secrets User"
@@ -69,7 +64,6 @@ resource "azurerm_role_assignment" "managed_identity_key_vault_secrets_user" {
 resource "time_sleep" "wait_for_rbac_propagation" {
   depends_on = [
     azurerm_role_assignment.terraform_key_vault_officer,
-    azurerm_role_assignment.managed_identity_key_vault_officer,
     azurerm_role_assignment.managed_identity_key_vault_secrets_user,
   ]
 

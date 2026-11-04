@@ -7,7 +7,23 @@ that belongs to a named owner outside the engineering task itself.
 Anything an engineer can solve without external input belongs in [`TODO.md`](TODO.md), not here.
 Application-level blockers live in the core repository's `REVIEW.md`.
 
-**Last reviewed:** 2026-09-23
+**Last reviewed:** 2026-11-04
+
+**Local hardening update (not live proof):** README's client installation checklist and
+TODO T-108 describe prepared workflow/input/egress changes. Production cloud jobs now name
+`hub`, including fast redeploy, drift, AI purge and backend deletion. This does not configure
+GitHub protection rules, OIDC credentials or Azure roles. R-001/R-002/R-006/R-008/R-010/R-011
+remain owner-gated; the historical problem statements below are context, not assertions about
+the current tenant or repository settings. In particular, no old plan artifact was deleted
+and no credential was rotated.
+The coordinator reports Core's allowlist reader exists locally; it is not published or
+runtime-verified. Independent re-review accepted Foundry identity and portal-journaling fixes;
+the final narrowed project guard is implemented/tested but final review acceptance is pending.
+Merge readiness also requires approval of the existing `230` scheduled/dispatch dev releases
+and `350` scheduled firewall writes; `360` remains manual and still writes firewall rules.
+Read-only Actions state on 2026-11-04 found `230` active and `350` manually disabled;
+the daily `350` YAML is not proof of active reconciliation. No enable/disable setting was changed.
+No Core release, image publication or appliance deployment is authorized by local preservation.
 
 | ID | Blocker | Owner | Status |
 |---|---|---|---|
@@ -16,13 +32,13 @@ Application-level blockers live in the core repository's `REVIEW.md`.
 
 | [R-003](#r-003--live-azure-beta-acceptance-sign-off) | 0.8 beta exit — live Azure acceptance sign-off | Product owner | Open — deploy done 2026-08-28, acceptance outstanding |
 | [R-004](#r-004--the-dev-environment-has-no-protection-against-out-of-band-deletion) | Dev environment deleted out of band; no protection against a repeat | Azure subscription owner | Open |
-| [R-005](#r-005--repoint-core_repo-at-the-new-core-repository) | Set `CORE_REPO` to `Work-Cloud_Network_Core` once the core repository is live | Repository admin | Open — until then `230` polls the archived repository |
-| [R-006](#r-006--rotate-secrets-that-reached-uploaded-terraform-plan-artifacts) | Delete the uploaded `tfplan-*` artifacts (they carried `TF_VAR_*` secret values) and rotate the four runtime secrets | Security / secret owner | Open — artifacts within retention are still downloadable |
-| [R-007](#r-007--prevent_destroy-on-stateful-resources-vs-the-330-teardown-design) | `prevent_destroy` on PostgreSQL / storage / Key Vault / Log Analytics conflicts with `330`'s `terraform destroy` | Azure subscription owner | Open — decision |
+| [R-005](#r-005--repoint-core_repo-at-the-new-core-repository) | Verify actual upstream `CORE_OWNER`/`CORE_REPO`, App installation and signing identity | Repository admin | Open — settings not verified |
+| [R-006](#r-006--rotate-secrets-that-reached-uploaded-terraform-plan-artifacts) | Inventory historical secret-bearing artifacts and coordinate deletion/rotation/recovery | Security / secret owner | Open — historical exposure not remediated here |
+| [R-007](#r-007--prevent_destroy-on-stateful-resources-vs-the-330-teardown-design) | Approve stateful-resource deletion safeguards and recovery for the current RG-deletion teardown | Azure subscription owner | Open — decision |
 | [R-008](#r-008--break-glass-local-admin-policy) | Local admin re-asserted as ADMIN on every deploy; no in-app off switch | Security | Open — decision |
 | [R-009](#r-009--edge-and-firewall-tier-for-a-single-tenant-appliance) | Azure Firewall Premium + Front Door Premium per environment with no Premium feature in use | Azure subscription owner | Open — cost decision [VERIFY pricing] |
-| [R-010](#r-010--220-fast-redeploy-to-prod-outside-the-hub-gate) | `220` can push any image to prod outside Terraform, the catalog and the `hub` gate | Repository admin | Open — decision |
-| [R-011](#r-011--330-purge-and-backend-destroy-jobs-run-at-repository-scope) | `330`'s `purge-soft-deleted` and `destroy-backend` run without an `environment:`; the prod gate is enforced transitively through `needs` | Repository admin | Open — confirm the posture |
+| [R-010](#r-010--220-fast-redeploy-to-prod-outside-the-hub-gate) | Verify effective `hub` approvals and approve the emergency Terraform/catalog bypass | Repository admin | Open — code gate implemented, live control unverified |
+| [R-011](#r-011--330-purge-and-backend-destroy-jobs-run-at-repository-scope) | Verify environment-scoped teardown rights and approvals, without repo-identity fallback | Repository admin | Open — code gate implemented, live grants unverified |
 ---
 
 ## R-001 — Security review before the first `byo-api` deploy
@@ -30,8 +46,9 @@ Application-level blockers live in the core repository's `REVIEW.md`.
 **Problem**
 `ai_mode: byo-api` stores admin-entered Anthropic/OpenAI API keys AES-256-GCM encrypted in the
 application database and opens Azure Firewall egress to `api.anthropic.com` and `api.openai.com`.
-The implementation lives in the core repository and is complete and tested; CBTS engineering
-standards require a human security review before it carries customer traffic.
+The implementation lives in the core repository. Its new allowlist reader is reported locally
+implemented, not published/runtime-verified; human security review and actual image/network
+acceptance are required before customer traffic. Azure network rules alone are not app policy.
 
 **Required owner**
 Security.
@@ -47,6 +64,12 @@ record the outcome here.
 
 ## R-002 — Required reviewers on the `hub` environment
 
+**Read-only owner evidence (2026-11-04, coordinator):** Default branch is `main`;
+branch-protection GET returned 404 "Branch not protected", and repository rulesets were empty.
+Organization rulesets/permissions were not verifiable (404 / `admin:org` scope required).
+This does not prove absent inherited controls or direct-push permission. The client owner must
+verify effective branch and environment protections before approval; no settings changed here.
+
 **Problem**
 `210-deploy`'s prod `apply` job runs under the `hub` GitHub environment, whose required
 reviewers are the human approval gate for production changes — the same gate the core used. A
@@ -56,9 +79,12 @@ freshly created repository has no environments and therefore no gate.
 Repository admin.
 
 **Required action**
-Create the `dev`, `prod` and `hub` environments; give `hub` the same required reviewers the core
-repository's `hub` environment has; register the OIDC federated credential for the prod deploy
-identity against subject `environment:hub` of this repository.
+Create the client-owned `dev`, `prod` and `hub` environments. Configure the client's authorized
+required reviewers, prevent self-review, restrict `hub` to the protected default branch and
+verify that the client's GitHub plan enforces these protections. Register the prod deploy
+identity's exact OIDC subject `repo:<client-owner>/<appliance-repository>:environment:hub`;
+do not copy the upstream publisher's deployment identity. Provision approved client configuration
+in `hub` as described in README and verify every production cloud job uses that identity.
 
 **Impact if unresolved**
 Prod deploys either fail OIDC or, worse, run without human approval.
@@ -175,7 +201,7 @@ Ask the sandbox administrator the one question that decides everything else: is
 **Problem**
 The core moved from `Work-Cloud_Network_Assessment` to `Work-Cloud_Network_Core` (core `TODO.md`
 T-509). `230-image-update` reads the build manifest from the repository named by the `CORE_REPO`
-variable through the GitHub App; while the variable still names the original repository, this
+variable through the GitHub App; if the variable still names the original repository, this
 appliance keeps polling a manifest that will never change again, and the dispatch from the new
 core's `200-build-images` reaches this repository only if the App is installed on the new core.
 
@@ -186,13 +212,12 @@ Repository variables and GitHub App installations are settings only the reposito
 Repository admin.
 
 **Required action**
-1. Wait until the core's `REVIEW.md` R-013 steps 1 – 4 are done (secrets and variables, App
-   installation, and the first `200` run on `Work-Cloud_Network_Core`) — but no later than the
-   deletion of the original repository (core `REVIEW.md` → R-014): once it is gone, the old
-   `CORE_REPO` value fails with a 404 on every `230` run.
-2. *Settings → Secrets and variables → Actions → Variables*: set `CORE_REPO` to `Work-Cloud_Network_Core`.
-3. Run `230 · Image Update` once from *Run workflow* (`force: false`) and confirm the *Fetch the
-   manifest* step reads from the new repository.
+1. Verify the actual producer repository and App installation rather than assume the migration
+   or permissions are incomplete. This session did not inspect the current configuration.
+2. Verify `CORE_OWNER`, `CORE_REPO` and `IMAGE_SIGNING_IDENTITY` identify the same approved
+   producer. Any settings change or Core image release requires separate owner approval.
+3. Before any approved `230` run, review its possible dev apply and prod issue effects.
+   A scheduled/dispatch update is not a read-only manifest check.
 4. Do the same in the sibling appliance.
 
 **Impact if unresolved**
@@ -213,7 +238,7 @@ Until 2026-09-23 `210-deploy` uploaded the workload `tfplan-*` file as a run art
 default 90-day retention. A saved plan stores every variable value in plaintext — `sensitive`
 only redacts CLI output — so the artifact carried `CNA_POSTGRES_ADMIN_PASSWORD`,
 `CNA_ENTRA_CLIENT_SECRET`, `CNA_NEXTAUTH_SECRET` and `CNA_CREDENTIAL_ENCRYPTION_KEY` for anyone
-with read access to the repository. The upload is removed; past artifacts are not.
+with read access to the repository. The upload is removed; historical deletion, current retention and exposure are not verified here.
 
 **Required owner**
 Security / secret owner.
@@ -233,17 +258,19 @@ Repository readers can recover the dev environment's runtime secrets from old ar
 ## R-007 — `prevent_destroy` on stateful resources vs. the `330` teardown design
 
 **Problem**
-No `lifecycle { prevent_destroy = true }` protects PostgreSQL Flexible Server, the storage
-account, Key Vault or Log Analytics; the only guard is `scripts/ci/refuse_destructive_plan.py`,
-which runs inside `210` and is documented as liftable for one run. Adding `prevent_destroy`
-makes `330-teardown`'s `terraform destroy` fail by design.
+The release plan guard protects selected stateful types and exact Foundry project addresses;
+the Foundry project additionally has `prevent_destroy`. `330` currently deletes the workload
+resource group directly, waits for deletion, then clears workload state; Terraform lifecycle
+guards do not protect against that Azure RG deletion. Locks, deletion grants and recoverable
+backups therefore need explicit owner acceptance.
 
 **Required owner**
 Azure subscription owner.
 
 **Required action**
-Choose: keep the guard-only posture (and R-004's resource lock), or add `prevent_destroy` and
-make `330` require a code change (flip the flag in a reviewed pull request) before a destroy.
+Approve resource locks/deletion rights and backup/restore requirements for `330`; verify
+Foundry project ownership before migration or deletion. Do not treat `prevent_destroy` as
+protection against direct Azure deletion or bypass a lock to make teardown pass.
 
 **Impact if unresolved**
 An out-of-band or misdirected apply can delete customer data with no Terraform-level stop.
@@ -297,15 +324,16 @@ Cost; no security impact either way.
 ## R-010 — `220-fast-redeploy` to prod outside the `hub` gate
 
 **Problem**
-`220` runs `az containerapp update` with any operator-typed image reference under
-`environment: prod`, bypassing Terraform, the release catalog, the destructive-plan guard and
-the `hub` reviewers.
+Historically `220` used `prod` rather than `hub`. The current implementation selects `hub`
+for prod, validates the target and verifies digest-pinned images. It still bypasses Terraform
+and the release catalog; actual reviewers, branch restrictions and OIDC rights are unverified.
 
 **Required owner**
 Repository admin.
 
 **Required action**
-Restrict `220` to `dev`, or run its prod path under `environment: hub`.
+Verify effective `hub` controls and scoped OIDC rights, approve emergency operator access,
+and require a subsequent `210` release to reconcile Terraform and the catalog.
 
 **Impact if unresolved**
 A single operator can put an arbitrary image into production with no second pair of eyes.
@@ -316,21 +344,22 @@ A single operator can put an arbitrary image into production with no second pair
 ## R-011 — `330` purge and backend-destroy jobs run at repository scope
 
 **Problem**
-In `330-teardown`, `purge-soft-deleted` (subscription-level Cognitive Services purge) and
-`destroy-backend` (the separate tfstate resource group) run without an `environment:` because
-the environment-scoped deploy identities cannot reach those scopes; only the repository-level
-identity can. The prod human gate is enforced transitively: both jobs `needs` the hub-gated
-`terraform-destroy`. The AWS sibling runs the equivalent job under `hub`.
+Historically purge/backend deletion used a repository identity. Every current `330` production
+job now selects `hub` and uses environment-scoped identity; no broader repo-identity fallback
+is used. Actual permissions for subscription-level AI purge and backend RG deletion, and
+effective reviewer/branch controls, remain unverified. Missing rights must fail the run.
 
 **Required owner**
 Repository admin.
 
 **Required action**
-Confirm the transitive-gate posture (and add a comment test so the `needs` edges cannot be
-removed silently), or give the `hub` environment an identity with the subscription-level scope.
+Review each teardown target and approve narrowly scoped temporary rights or an operator
+procedure. Verify all jobs use the intended environment subject; do not broaden steady-state
+deploy rights just to permit purge or backend deletion.
 
 **Impact if unresolved**
-None while the `needs` edges stand; a future edit could detach the gate unnoticed.
+Teardown may fail safely for missing rights, or be overprivileged without effective owner
+controls. Code-level environment selection is not evidence of protected GitHub settings.
 
 **References**
 - v1.0 review finding DEVOPS-005; WS-4 verification note

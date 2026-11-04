@@ -6,11 +6,11 @@ in the core repository's `TODO.md`; this file covers deployment, operations and 
 Items requiring external input — an approval, an account, a credential, an access grant — belong
 in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
-**Last reviewed:** 2026-11-03
+**Last reviewed:** 2026-11-04
 
 | Phase | Theme | Items |
 |---|---|---|
-| [Phase 1](#phase-1--bring-up) | Bring-up | T-101 – T-107 |
+| [Phase 1](#phase-1--bring-up) | Bring-up | T-101 – T-108 |
 
 ---
 
@@ -24,8 +24,11 @@ in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG
   already exists (dev), the first `210-deploy` plan must show only those `moved` annotations plus
   three in-place Container App env updates (`CNA_AI_MODE`, `CNA_APPLIANCE_CLOUD`,
   `CNA_AI_ENGINE_DEFAULT`) — no create, no destroy.
-- **Recommended action:** Run `210-deploy` for dev in `saas` mode, stop at the plan artifact, and
-  read it line by line before approving. A destroy of `module.ai` means a `moved` block is missing.
+- **Recommended action:** In an approved protected operator context, inspect the current plan
+  before apply; secret-bearing plans are not uploaded as artifacts. The historical comparison
+  below predates T-108's additional changes and is not the expected complete current diff.
+  Review all current in-place changes and identity-role removals separately; a destroy of
+  `module.ai` requires investigation, not bypassing a guard.
 - **Status:** Static half done (2026-09-23); the live plan read is still owed and is the only
   step left. Dev was last applied from core commit `3245c254` (release catalog `33169632082`).
   Against that commit: every resource that gained `count` — `module.ai`, the four
@@ -281,4 +284,21 @@ in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG
 - **Origin:** AWS appliance T-114 / core T-723. Core T-723 records observed cosign v3.1.3 DSSE-envelope output on 2026-10-26.
 - **Description:** This Azure-only change requires digest-pinned images and accepts validated direct in-toto SLSA v0.2 statements as well as DSSE envelopes, applying identical subject-digest and builder-prefix checks to both.
 - **Recommended action:** Mirror the verifier, both workflow validators, the regression test, and the README/CHANGELOG behavior update to the AWS appliance; compare the final shared verifier byte for byte with that copy. Confirm with the core that T-723's parser and digest policy matches its signing contract.
-- **Status:** Open — this session is scoped to the Azure appliance; the AWS and core copies were not inspected or changed.
+- **Status:** Verifier and original regression-test byte parity confirmed 2026-11-03 by exchanged SHA-256 hashes with the AWS session; no sibling files were directly inspected or changed here. The broader workflow/docs mirror and core contract acceptance remain owner/coordinator work.
+
+### T-108 — Client installation hardening and sibling handoff
+
+- **Priority:** High
+- **Origin:** Client deployment, Credential/BYO-AI and supply-chain/access-controls refresh requested 2026-11-04.
+- **Local implementation:** Production cloud jobs use `hub`, cross-operation concurrency is shared, client input validation fails closed, upstream `CORE_OWNER` is independent of the client owner, App tokens are repository-scoped, plan summaries contain only counts, teardown waits before state deletion, optional break-glass hashes reach deploy/drift consistently, and public BYO egress requires an explicit provider selection. README is the reviewable client-install/remediation artifact.
+- **Upgrade prerequisites:** Set `AZURE_LOCATION`, `FOUNDRY_LOCATION` for `saas`, `CORE_OWNER`, the actual client domain, and existing `FOUNDRY_ACCOUNT_NAME`/`FOUNDRY_PROJECT_NAME` before planning; configure `CNA_BYO_AI_PROVIDERS` and matching `CNA_AI_ENGINE_DEFAULT` for `byo-api`. Approve the required `hub` OIDC/role/configuration transition before any production run. No live plan/state/settings were changed here.
+- **Mirror action:** In `Work-Cloud_Network_AWS_Appliance`, mirror the client config validation contract/tests, protected prod jobs and per-environment concurrency, `CORE_OWNER`/upstream trust distinction, repository-scoped App tokens, count-only plan summaries and client-install instructions, adapting only cloud-specific target validation and egress. Keep the existing signature verifier and its regression test byte-identical; this assignment does not change them. The core owns credential/BYO runtime behavior, new image scans/remediation, signing producer evidence and local-admin revocation.
+- **Deferred external work:** The coordinator must record the shared change in both sibling/core handover reports, the core findings register and CNA Total Workboard; external writes and changes outside Azure are not authorized in this session. No mirror or live protection is implied by these local edits.
+- **Cross-repo integration blocker:** Azure injects validated JSON `CNA_BYO_AI_PROVIDERS` into both API/web (also worker), requires the default engine in that list, and omits it in SaaS. The coordinator reports the Core reader exists locally, not yet published/runtime-verified. Require its commit, contract tests and signed-image/runtime proof; independently verify network traversal and provider denial. Existing BYO installations must configure the list/default engine and run `210` before adopting the fail-closed runtime; `220` cannot add it.
+- **Owner gates:** R-001/R-002/R-006/R-008/R-010/R-011 remain open for security acceptance, actual GitHub protections/OIDC grants, historical artifact deletion and coordinated rotation, break-glass policy and client rollout. Fresh image-scan evidence is supplied by the core, not by this appliance.
+- **Review remediation:** Existing SaaS catalog records require explicit Foundry account/project names; live account discovery also refuses missing or mismatched upgrade names (historical dev account `cna-dev-eus2-aif2`), while greenfield derivation remains. Runner windows journal the exact IP in `CnaRunnerIp` resource tags before opening/at creation, retry+verify cleanup, retain journals and fail on removal errors, and reconcile interrupted windows on subsequent deploy/drift runs. Hard termination has no guaranteed expiry: client alerting, prompt approved reconciliation and live recovery verification remain required. Unjournaled historical rules need owner inventory. Runtime effective RBAC and direct-origin denial remain NOT VERIFIED.
+- **Owner branch gate:** Coordinator read-only checks found default branch `main`, branch protection GET 404 "Branch not protected", and an empty repository ruleset list. Organization rulesets/permissions could not be verified (404 / admin:org scope required); do not infer absent inherited controls or direct-push permission. Owner must verify and configure effective protections before approval.
+- **Re-review F-01/F-02:** Existing Foundry project discovery must match both configured name and full child-resource identity; `azapi_resource.foundry_project` now has `prevent_destroy`, so project migration/destruction is owner-reviewed, not a release. `320` portal publish selects dev/prod (prod `hub`), shares environment concurrency, validates client scope and uses storage-only journal preparation/verified cleanup for a storage account inside that workload RG. Mirror this new `320` environment input and journal contract in the sibling with cloud-specific adaptation. Actual Azure project API/cleanup propagation, hard-stop recovery/alerts and portal image/auth path remain NOT VERIFIED.
+- **Re-review F-03:** Both apply guards protect exact Foundry project addresses, not all `azapi_resource` instances; unrelated flow-log deletion remains allowed. Mirror the optional `PROTECTED_RESOURCE_ADDRESSES` guard interface and its synthetic tests in the sibling; keep Azure project addresses cloud-specific. `prevent_destroy` remains. Local synthetic tests are not a live replacement plan.
+- **Preservation/publication status:** Local implementation and regression evidence are ready to preserve in Git; independent reviews accepted F-01/F-02 and requested F-03, whose narrowed guard/tests are implemented but final acceptance has not been supplied to this session. No live deployment/security sign-off is implied. Before push/PR/merge, the coordinator/owner must approve existing `230` six-hourly dev auto-release and `350` daily firewall-mutating drift effects, finish missing scans/lint and cross-repo handovers, and confirm client configuration. Docker Scout exact-digest scanning is a separate Core-owned phase, not performed here.
+- **Read-only Actions state (2026-11-04):** `230` is active; `350` is `disabled_manually` despite its daily YAML schedule; `360` is active/manual. No state was changed. Do not promise scheduled cleanup or re-enable drift without owner approval. Feature-branch push triggers no YAML push workflow; a PR targeting main runs read-only/no-cloud `300` and may add its URL to the configured project via `380`. Main merge runs validation and updates the automation later used by `230`; no Core release/deployment is authorized here.

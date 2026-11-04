@@ -1,0 +1,64 @@
+"""Offline synthetic-plan regression tests; no Terraform or cloud execution."""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import unittest
+
+
+GUARD = Path(__file__).with_name("refuse_destructive_plan.py")
+PROJECTS = (
+    "module.ai[0].azapi_resource.foundry_project",
+    "module.ai.azapi_resource.foundry_project",
+)
+
+
+class DestructivePlanTests(unittest.TestCase):
+    def run_guard(self, address, resource_type, actions, *, types="azurerm_storage_account", addresses=PROJECTS):
+        plan = {
+            "resource_changes": [
+                {"address": address, "type": resource_type, "change": {"actions": actions}}
+            ]
+        }
+        return subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=json.dumps(plan),
+            text=True,
+            capture_output=True,
+            timeout=10,
+            env={
+                **os.environ,
+                "PROTECTED_RESOURCE_TYPES": types,
+                "PROTECTED_RESOURCE_ADDRESSES": ",".join(addresses),
+            },
+        )
+
+    def test_project_delete_and_replacement_refused(self):
+        for address in PROJECTS:
+            for actions in (["delete"], ["delete", "create"], ["create", "delete"]):
+                with self.subTest(address=address, actions=actions):
+                    result = self.run_guard(address, "azapi_resource", actions)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn(address, result.stderr)
+
+    def test_project_update_allowed(self):
+        self.assertEqual(self.run_guard(PROJECTS[0], "azapi_resource", ["update"]).returncode, 0)
+
+    def test_flow_log_delete_allowed(self):
+        result = self.run_guard("module.observability.azapi_resource.flow_log[0]", "azapi_resource", ["delete"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_type_protection_preserved(self):
+        self.assertEqual(self.run_guard("module.storage.azurerm_storage_account.this", "azurerm_storage_account", ["delete"]).returncode, 1)
+
+    def test_empty_configuration_refused(self):
+        self.assertEqual(self.run_guard("anything", "anything", ["delete"], types="", addresses=()).returncode, 1)
+
+    def test_address_only_configuration(self):
+        self.assertEqual(self.run_guard(PROJECTS[0], "azapi_resource", ["delete"], types="").returncode, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

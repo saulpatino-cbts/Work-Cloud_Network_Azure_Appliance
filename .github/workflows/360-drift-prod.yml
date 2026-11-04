@@ -11,11 +11,12 @@ permissions:
 # Serialize prod drift scans — a manual dispatch shouldn't overlap another
 # in-flight scan against the same prod state.
 concurrency:
-  group: drift-prod
+  group: azure-environment-prod
   cancel-in-progress: false
 
 env:
   TF_IN_AUTOMATION: true
+  TF_INPUT: false
   ARM_USE_OIDC: true
   ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -26,7 +27,7 @@ jobs:
   drift-detection:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: prod
+    environment: hub
     outputs:
       # "missing-environment" when the state backend or the state itself is
       # gone; "check-failed" for any other failure. Read by report-failure.
@@ -35,17 +36,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
+      - name: Validate client target and resolve scoped Terraform inputs
+        env:
+          ENVIRONMENT: prod
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+          TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+          TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER }}
+          AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          FOUNDRY_LOCATION: ${{ vars.FOUNDRY_LOCATION }}
+          FOUNDRY_ACCOUNT_NAME: ${{ vars.FOUNDRY_ACCOUNT_NAME }}
+          FOUNDRY_PROJECT_NAME: ${{ vars.FOUNDRY_PROJECT_NAME }}
+          CNA_BYO_AI_PROVIDERS: ${{ vars.CNA_BYO_AI_PROVIDERS || '[]' }}
+          DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+        run: bash scripts/ci/validate_client_config.sh drift --export
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
         with:
           terraform_wrapper: false
 
       - name: Azure login with OIDC
+        id: azure_login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43  # v3.0.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Reconcile abandoned runner firewall leases
+        run: bash scripts/ci/runner_firewall_window.sh prepare
 
       - name: Resolve Terraform backend targets
         run: |
@@ -141,7 +165,7 @@ jobs:
             KEY_VAULT_NAME="${KEY_VAULT_NAME:-${WORKLOAD_RG#rg-}-kv}"
           fi
           if az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$WORKLOAD_RG" --only-show-errors > /dev/null 2>&1; then
-            RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
+            RUNNER_IP="${RUNNER_FIREWALL_IP:?Tracked runner IP required}"
             if [ -n "$RUNNER_IP" ]; then
               az keyvault network-rule add --name "$KEY_VAULT_NAME" --resource-group "$WORKLOAD_RG" --ip-address "$RUNNER_IP" --only-show-errors > /dev/null
               # Firewall rule propagation is not immediate — wait until the data
@@ -173,7 +197,7 @@ jobs:
       - name: Ensure storage account is reachable during drift plan
         working-directory: infra/terraform/environments/prod/workload
         run: |
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
+          RUNNER_IP="${RUNNER_FIREWALL_IP:?Tracked runner IP required}"
           if [ -z "$RUNNER_IP" ]; then
             echo "::warning::Could not determine the runner's public IP; storage data-plane calls may be refused by the firewall."
             exit 0
@@ -220,7 +244,9 @@ jobs:
           TF_VAR_container_registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
           TF_VAR_credential_encryption_key: ${{ secrets.CNA_CREDENTIAL_ENCRYPTION_KEY }}
           TF_VAR_github_token: ""
+          TF_VAR_local_admin_password: ${{ secrets.LOCAL_ADMIN_PASSWORD }}
         run: |
+          [ -n "$TF_VAR_local_admin_password" ] || unset TF_VAR_local_admin_password
           if [ -z "$DOCKERHUB_NAMESPACE" ]; then
             echo "::error::DOCKERHUB_NAMESPACE variable is required."
             exit 1
@@ -303,57 +329,10 @@ jobs:
             exit "$EXIT"
           fi
 
-      - name: Remove Runner IP from Key Vault
-        if: always()
-        env:
-          REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
-        run: |
-          if [[ -n "$TFSTATE_RESOURCE_GROUP" && "$TFSTATE_RESOURCE_GROUP" == *-tfstate ]]; then
-            WORKLOAD_RG="${TFSTATE_RESOURCE_GROUP%-tfstate}"
-          else
-            WORKLOAD_RG="rg-cna-prod-${REGION_SHORT}"
-          fi
-          # Trust the Terraform-maintained KEY_VAULT_NAME variable (the real name
-          # carries a suffix), but only if it matches THIS environment's prefix —
-          # the variable is repo-level and both env workloads write it (last
-          # apply wins). Bare "-kv" is the pre-first-apply fallback.
-          KEY_VAULT_NAME="${{ vars.KEY_VAULT_NAME }}"
-          if [[ "$KEY_VAULT_NAME" != "${WORKLOAD_RG#rg-}-kv"* ]]; then
-            # Variable missing or belongs to the other environment — resolve the
-            # real vault (name carries a suffix, e.g. -kv2) from Azure instead of
-            # guessing.
-            KEY_VAULT_NAME=$(az keyvault list -g "$WORKLOAD_RG" --query "[?starts_with(name, '${WORKLOAD_RG#rg-}-kv')].name | [0]" -o tsv 2>/dev/null || echo "")
-            KEY_VAULT_NAME="${KEY_VAULT_NAME:-${WORKLOAD_RG#rg-}-kv}"
-          fi
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
-          if [ -n "$RUNNER_IP" ]; then
-            az keyvault network-rule remove --name "$KEY_VAULT_NAME" --resource-group "$WORKLOAD_RG" --ip-address "$RUNNER_IP" --only-show-errors >/dev/null 2>&1 || true
-          fi
+      - name: Reconcile runner firewall leases
+        if: always() && steps.azure_login.outcome == 'success'
+        run: bash scripts/ci/runner_firewall_window.sh cleanup
 
-      - name: Remove Runner IP from storage account
-        if: always()
-        working-directory: infra/terraform/environments/prod/workload
-        run: |
-          NAME="${STORAGE_ACCOUNT_NAME:-}"
-          RG="${STORAGE_ACCOUNT_RG:-}"
-          if [ -z "$NAME" ]; then
-            # First apply of an environment: the account was created during this
-            # run with the runner IP baked into ip_rules — resolve it from state.
-            NAME=$(terraform output -raw storage_account_name 2>/dev/null || echo "")
-            if [ -n "$NAME" ]; then
-              RG=$(az storage account show --name "$NAME" --query resourceGroup -o tsv --only-show-errors 2>/dev/null || echo "")
-            fi
-          fi
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
-          if [ -n "$NAME" ] && [ -n "$RG" ] && [ -n "$RUNNER_IP" ]; then
-            az storage account network-rule remove --account-name "$NAME" --resource-group "$RG" --ip-address "$RUNNER_IP" --only-show-errors >/dev/null 2>&1 || true
-          fi
-
-  # A failing drift check must reach a person (TODO.md T-105): GitHub only
-  # e-mails the workflow author on a scheduled-run failure, which for a
-  # bot-authored workflow is nobody. One issue per failure kind, deduplicated by
-  # exact title, so a month of daily failures is one issue that gets staler and
-  # louder — not thirty notifications; every further failure adds a comment.
   report-failure:
     needs: drift-detection
     if: ${{ always() && needs.drift-detection.result == 'failure' }}
