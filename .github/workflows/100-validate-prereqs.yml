@@ -58,7 +58,7 @@ jobs:
             local name="$1"
             local value="$2"
             local scope="${3:-all workflows}"
-            if [[ -z "$value" ]]; then
+            if [[ -z "$value" || "${value,,}" == *placeholder* || "${value,,}" == *changeme* || "$value" == *'<'* || "$value" == *'>'* ]]; then
               if [[ "$scope" == "all workflows" ]]; then
                 echo "| \`$name\` | $scope | ❌ Missing |" >> "$GITHUB_STEP_SUMMARY"
                 echo "::error::Secret $name is not set"
@@ -135,10 +135,12 @@ jobs:
               FAILED=1
             elif [[ "$allow_none" == "false" && "$value" == "none" ]]; then
               echo "| \`$name\` | \`none\` | ⚠️ Placeholder |" >> "$GITHUB_STEP_SUMMARY"
-              echo "::warning::Variable $name is still set to 'none' — update after Terraform deploy"
-            elif [[ "$value" == *"PLACEHOLDER"* || "$value" == *"example.com"* ]]; then
+              echo "::error::Variable $name is still set to 'none'."
+              FAILED=1
+            elif [[ "${value,,}" == *placeholder* || "${value,,}" == *example.com* || "${value,,}" == *replace_me* || "$value" == *'<'* || "$value" == *'>'* ]]; then
               echo "| \`$name\` | \`$value\` | ⚠️ Placeholder |" >> "$GITHUB_STEP_SUMMARY"
-              echo "::warning::Variable $name still has a placeholder value"
+              echo "::error::Variable $name still has a placeholder value"
+              FAILED=1
             else
               echo "| \`$name\` | \`$value\` | ✅ Set |" >> "$GITHUB_STEP_SUMMARY"
             fi

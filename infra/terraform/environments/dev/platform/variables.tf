@@ -1,7 +1,10 @@
 variable "tenant_id" {
   description = "Azure tenant ID"
   type        = string
-  default     = "00000000-0000-0000-0000-000000000000"
+  validation {
+    condition     = can(regex("^[0-9a-fA-F-]{36}$", var.tenant_id)) && var.tenant_id != "00000000-0000-0000-0000-000000000000"
+    error_message = "Supply the client tenant UUID, not a placeholder."
+  }
 }
 
 variable "location" {
@@ -87,4 +90,15 @@ variable "manage_diagnostic_settings" {
   description = "Whether Terraform manages per-resource diagnostic settings. Defaults FALSE: on an Azure Landing Zone the DeployIfNotExists policy ('setByPolicy-*') already owns diagnostics, and managing our own races the policy's remediation (azurerm 'already exists / needs import'). Set true (TF_VAR_manage_diagnostic_settings / ALZ_DIAGNOSTICS_MANAGE) only on a non-governed subscription, or to dual-ship to a different workspace and accept the create-race."
   type        = bool
   default     = false
+}
+
+variable "byo_ai_providers" {
+  description = "Explicit client-approved BYO egress providers. No keys. Empty keeps both public AI endpoints closed."
+  type        = set(string)
+  default     = []
+  nullable    = false
+  validation {
+    condition     = alltrue([for provider in var.byo_ai_providers : contains(["anthropic", "openai"], provider)]) && (var.ai_mode != "byo-api" || length(var.byo_ai_providers) > 0)
+    error_message = "byo-api requires one or more explicitly approved providers: anthropic and/or openai."
+  }
 }

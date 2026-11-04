@@ -23,7 +23,10 @@ locals {
   }
 
   # ── AI mode ─────────────────────────────────────────────────────────────────
-  ai_saas = var.ai_mode == "saas"
+  ai_saas               = var.ai_mode == "saas"
+  foundry_account_name  = var.foundry_account_name != "" ? var.foundry_account_name : "${local.name_prefix}-aif"
+  foundry_project_name  = var.foundry_project_name != "" ? var.foundry_project_name : "${local.foundry_account_name}-proj"
+  azure_openai_endpoint = var.azure_openai_endpoint != "" ? var.azure_openai_endpoint : "https://${local.foundry_account_name}.services.ai.azure.com"
 
   # null when module.ai is not instantiated (byo-api). one() on the module splat
   # is the zero-or-one accessor; it never indexes into an empty list.
@@ -32,18 +35,20 @@ locals {
   # Mode-independent runtime contract, injected into all three apps. The app
   # resolves its engine family from these (apps/cna-web/lib/ai-engine-rules.ts,
   # cna/ai_engine/chat_agent.py).
-  ai_mode_env_vars = {
+  ai_mode_env_vars = merge({
     CNA_AI_MODE           = var.ai_mode
     CNA_APPLIANCE_CLOUD   = "azure"
     CNA_AI_ENGINE_DEFAULT = var.ai_engine_default
-  }
+    }, local.ai_saas ? {} : {
+    CNA_BYO_AI_PROVIDERS = jsonencode(sort(tolist(var.byo_ai_providers)))
+  })
 
   # saas-only env. Empty in byo-api so AZURE_OPENAI_* / FOUNDRY_* are absent and
   # the Azure OpenAI engine reports unconfigured on both tiers.
   azure_ai_env_vars = local.ai_saas ? {
     FOUNDRY_PROJECT_ENDPOINT        = var.foundry_project_endpoint
     FOUNDRY_RECOMMENDATION_AGENT_ID = var.foundry_recommendation_agent_id
-    AZURE_OPENAI_ENDPOINT           = var.azure_openai_endpoint
+    AZURE_OPENAI_ENDPOINT           = local.azure_openai_endpoint
     AZURE_OPENAI_DEPLOYMENT         = var.azure_openai_deployment
     AZURE_OPENAI_API_VERSION        = var.azure_openai_api_version
   } : {}
@@ -63,7 +68,7 @@ locals {
   azure_openai_endpoint_host = split(
     "/",
     replace(
-      replace(var.azure_openai_endpoint, "https://", ""),
+      replace(local.azure_openai_endpoint, "https://", ""),
       "http://",
       ""
     )

@@ -6,8 +6,9 @@ resource "azurerm_role_assignment" "storage_blob_data_contributor" {
   principal_id         = var.managed_identity_principal_id
 }
 
-# NOTE: Key Vault Secrets Officer + Secrets User are already assigned in the
-# identity module (on the managed identity itself). Do NOT add a Key Vault
+# NOTE: Key Vault Secrets User is assigned to the runtime identity by the
+# identity module; Secrets Officer belongs only to the deploy principal.
+# Do NOT add a Key Vault
 # role assignment here — that would be a duplicate assignment on the same
 # principal + scope, which Azure silently ignores but Terraform tracks as a
 # separate resource, causing state drift.
@@ -103,7 +104,7 @@ resource "azurerm_key_vault_secret" "api_token" {
 # environments that haven't bootstrapped this secret yet keep deploying
 # unchanged — this resource simply doesn't exist for them.
 resource "azurerm_key_vault_secret" "local_admin_password" {
-  count           = var.local_admin_password != null ? 1 : 0
+  count           = nonsensitive(var.local_admin_password != null) ? 1 : 0
   name            = "cna-local-admin-password"
   value           = var.local_admin_password
   key_vault_id    = var.key_vault_id

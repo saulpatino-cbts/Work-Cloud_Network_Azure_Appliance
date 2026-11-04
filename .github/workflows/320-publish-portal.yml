@@ -15,6 +15,13 @@ name: "320 · Publish Delivery Portal"
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: 'Client environment owning the portal storage account'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
       engagement_id:
         description: 'Engagement ID (e.g. acme-20260305-a3f2)'
         required: true
@@ -47,18 +54,22 @@ permissions:
 # One publish per engagement at a time — overlapping runs would race to write
 # the same portal output; a newer dispatch supersedes an in-flight one.
 concurrency:
-  group: publish-portal-${{ inputs.engagement_id }}
-  cancel-in-progress: true
+  group: azure-environment-${{ inputs.environment }}
+  cancel-in-progress: false
 
 jobs:
   publish:
     name: Publish — ${{ inputs.engagement_id }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: ${{ inputs.environment == 'prod' && 'hub' || inputs.environment }}
     env:
       REGISTRY: docker.io
       DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
       IMAGE_REPOSITORY: cna
+      ENVIRONMENT: ${{ inputs.environment }}
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      RUNNER_STORAGE_ACCOUNT: ${{ inputs.azure_storage_account }}
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -78,12 +89,30 @@ jobs:
           path: ${{ github.workspace }}/engagements
 
       # Azure OIDC — uses same AZURE_* secrets as all other workflows
+      - name: Validate client portal scope
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+          TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+          TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER }}
+          AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+        run: bash scripts/ci/validate_client_config.sh teardown
+
       - name: Configure Azure credentials (OIDC)
+        id: azure_login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Reconcile and journal portal storage window
+        env:
+          TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+        run: bash scripts/ci/runner_firewall_window.sh prepare
 
       - name: Log in to Docker Hub
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
@@ -124,11 +153,7 @@ jobs:
         run: |
           STORAGE_ACCOUNT_RG=$(az storage account show --name "$AZURE_STORAGE_ACCOUNT" --query resourceGroup -o tsv --only-show-errors)
           echo "STORAGE_ACCOUNT_RG=$STORAGE_ACCOUNT_RG" >> "$GITHUB_ENV"
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
-          if [ -z "$RUNNER_IP" ]; then
-            echo "::warning::Could not determine the runner's public IP; the upload may be refused by the storage firewall."
-            exit 0
-          fi
+          RUNNER_IP="${RUNNER_FIREWALL_IP:?Journaled runner IP required}"
           az storage account network-rule add --account-name "$AZURE_STORAGE_ACCOUNT" --resource-group "$STORAGE_ACCOUNT_RG" --ip-address "$RUNNER_IP" --only-show-errors > /dev/null
           # Firewall rule propagation is not immediate — wait until the data
           # plane accepts this runner before publishing.
@@ -167,14 +192,7 @@ jobs:
             "${ARGS[@]}"
 
       - name: Remove Runner IP from storage account
-        if: always()
+        if: always() && steps.azure_login.outcome == 'success'
         env:
-          AZURE_STORAGE_ACCOUNT: ${{ inputs.azure_storage_account }}
-        run: |
-          if [ -z "${STORAGE_ACCOUNT_RG:-}" ]; then
-            exit 0
-          fi
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
-          if [ -n "$RUNNER_IP" ]; then
-            az storage account network-rule remove --account-name "$AZURE_STORAGE_ACCOUNT" --resource-group "$STORAGE_ACCOUNT_RG" --ip-address "$RUNNER_IP" --only-show-errors >/dev/null 2>&1 || true
-          fi
+          TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+        run: bash scripts/ci/runner_firewall_window.sh cleanup

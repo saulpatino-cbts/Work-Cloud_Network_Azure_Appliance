@@ -56,6 +56,10 @@ resource "azurerm_cognitive_deployment" "chat" {
 }
 
 resource "azapi_resource" "foundry_project" {
+  lifecycle {
+    prevent_destroy = true
+  }
+
   type      = "Microsoft.CognitiveServices/accounts/projects@2025-06-01"
   name      = var.foundry_project_name
   parent_id = azurerm_cognitive_account.foundry.id

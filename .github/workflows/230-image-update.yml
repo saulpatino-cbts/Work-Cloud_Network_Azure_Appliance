@@ -62,6 +62,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
+      - name: Validate upstream source independently of client repository
+        env:
+          CORE_OWNER: ${{ vars.CORE_OWNER }}
+          CORE_REPO: ${{ vars.CORE_REPO }}
+          IMAGE_SIGNING_IDENTITY: ${{ vars.IMAGE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$CORE_OWNER" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ||
+                ! "$CORE_REPO" =~ ^[A-Za-z0-9_.-]+$ ||
+                "$CORE_REPO" == "." || "$CORE_REPO" == ".." ||
+                "$IMAGE_SIGNING_IDENTITY" != "https://github.com/${CORE_OWNER}/${CORE_REPO}/.github/workflows/200-build-images.yml@refs/heads/"* ]]; then
+            echo "::error::Set CORE_OWNER/CORE_REPO to the actual upstream producer and IMAGE_SIGNING_IDENTITY to its trusted signing workflow, not the client deployment repository."
+            exit 1
+          fi
+
       - name: Take the manifest from the dispatch payload
         if: github.event_name == 'repository_dispatch'
         env:
@@ -77,7 +92,7 @@ jobs:
         with:
           client-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
+          owner: ${{ vars.CORE_OWNER }}
           repositories: ${{ vars.CORE_REPO }}
 
       - name: Fetch the manifest from the core repository
@@ -85,7 +100,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           CORE_REPO: ${{ vars.CORE_REPO }}
-          OWNER: ${{ github.repository_owner }}
+          OWNER: ${{ vars.CORE_OWNER }}
         run: |
           set -euo pipefail
           if [ -z "$CORE_REPO" ]; then
@@ -106,7 +121,7 @@ jobs:
       - name: Compare against the release catalog
         id: compare
         env:
-          OWNER: ${{ github.repository_owner }}
+          OWNER: ${{ vars.CORE_OWNER }}
           CORE_REPO: ${{ vars.CORE_REPO }}
           DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
           FORCE: ${{ inputs.force }}

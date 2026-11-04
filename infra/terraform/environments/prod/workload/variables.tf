@@ -20,7 +20,10 @@ variable "web_image" {
 variable "tenant_id" {
   description = "Azure tenant ID"
   type        = string
-  default     = "00000000-0000-0000-0000-000000000000"
+  validation {
+    condition     = can(regex("^[0-9a-fA-F-]{36}$", var.tenant_id)) && var.tenant_id != "00000000-0000-0000-0000-000000000000"
+    error_message = "Supply the client tenant UUID, not a placeholder."
+  }
 }
 
 # NOTE: var.location is intentionally NOT declared in the workload root. The
@@ -68,6 +71,10 @@ variable "postgres_admin_password" {
 variable "entra_client_id" {
   description = "Entra ID (Azure AD) application client ID for NextAuth Entra provider"
   type        = string
+  validation {
+    condition     = can(regex("^[0-9a-fA-F-]{36}$", var.entra_client_id)) && var.entra_client_id != "00000000-0000-0000-0000-000000000000"
+    error_message = "Supply the client-owned Entra application UUID."
+  }
 }
 
 variable "entra_client_secret" {
@@ -99,7 +106,10 @@ variable "nextauth_secret" {
 variable "nextauth_url" {
   description = "Canonical URL of the cna-web deployment (used by NextAuth for callbacks)"
   type        = string
-  default     = "https://cna.example.com"
+  validation {
+    condition     = can(regex("^https://[a-zA-Z0-9][a-zA-Z0-9.-]*$", var.nextauth_url)) && !can(regex("(?i)(example\\.(com|invalid)|placeholder|localhost)", var.nextauth_url))
+    error_message = "Set nextauth_url to the client HTTPS origin, with no trailing slash/path or placeholder."
+  }
 }
 
 variable "web_ingress_ip_security_restrictions" {
@@ -142,6 +152,21 @@ variable "ai_mode" {
   }
 }
 
+variable "byo_ai_providers" {
+  description = "Client-approved BYO providers, shared by API/web runtime policy and platform egress. Required in byo-api; ignored in saas."
+  type        = set(string)
+  default     = []
+  nullable    = false
+  validation {
+    condition = var.ai_mode != "byo-api" || (
+      length(var.byo_ai_providers) > 0 &&
+      alltrue([for provider in var.byo_ai_providers : contains(["anthropic", "openai"], provider)]) &&
+      contains(var.byo_ai_providers, var.ai_engine_default)
+    )
+    error_message = "byo-api requires a nonempty anthropic/openai allowlist containing ai_engine_default."
+  }
+}
+
 variable "ai_engine_default" {
   description = "Default global GenAI engine when no ai.activeEngine database setting exists. Must match ai_mode: saas on Azure => azure-openai; byo-api => anthropic or openai (only consulted as the tie-break when both BYO keys are present)."
   type        = string
@@ -163,9 +188,25 @@ variable "ai_engine_default" {
 }
 
 variable "foundry_location" {
-  description = "Azure region for the Foundry/AIServices account. Defaults to eastus2 (model + capacity availability); override per environment if needed."
+  description = "Client-approved region with model capacity. Required in saas; unused in byo-api."
   type        = string
-  default     = "eastus2"
+  default     = ""
+  validation {
+    condition     = var.ai_mode != "saas" || can(regex("^[a-z0-9]+$", var.foundry_location))
+    error_message = "saas requires an explicitly selected Foundry region."
+  }
+}
+
+variable "foundry_account_name" {
+  description = "Existing account name to preserve during upgrades; empty derives from this client's environment prefix."
+  type        = string
+  default     = ""
+}
+
+variable "foundry_project_name" {
+  description = "Existing project name to preserve during upgrades; empty derives from this client's account name."
+  type        = string
+  default     = ""
 }
 
 variable "foundry_project_endpoint" {
@@ -187,7 +228,7 @@ variable "foundry_recommendation_agent_id" {
 variable "azure_openai_endpoint" {
   description = "Azure OpenAI base endpoint host for the web app (no /openai/v1 suffix; the SDK appends it)."
   type        = string
-  default     = "https://cna-prod-eus2-aif.services.ai.azure.com"
+  default     = ""
 }
 
 variable "azure_openai_deployment" {

@@ -4,6 +4,7 @@
 # appliances — keep byte-identical. Called by 210 (every image, before the plan)
 # and 220 (every image named) after `docker login`, so cosign can read the
 # signatures from the private Docker Hub repository:
+# References must be digest-pinned; tag-only verification is not permitted.
 #
 #   scripts/ci/verify_image_signature.sh <role> <reference>
 #
@@ -18,7 +19,8 @@
 #                                  certificate carries exactly that identity and
 #                                  issuer, recorded in the transparency log.
 #   2. cosign verify-attestation — a SLSA v0.2 provenance attestation under the
-#                                  same identity.
+#                                  same identity; direct statements and DSSE
+#                                  envelopes are normalized and checked equally.
 #   3. the statement's subject is the digest being deployed and its
 #                                  predicate.builder.id names a workflow run of
 #                                  the core repository the identity belongs to.
@@ -51,14 +53,14 @@ fi
 CORE_REPO_URL="${IDENTITY%%/.github/*}"
 EXPECTED_BUILDER_PREFIX="${CORE_REPO_URL}/actions/runs/"
 
-EXPECTED_DIGEST=""
 if [[ "$REF" =~ @sha256:([0-9a-f]{64})$ ]]; then
   EXPECTED_DIGEST="${BASH_REMATCH[1]}"
 elif [[ "$REF" == *@* ]]; then
   echo "::error::${ROLE} image reference '${REF}' has a malformed digest suffix (expected @sha256:<64 lowercase hex>)." >&2
   exit 1
 else
-  echo "::warning::${ROLE} image reference '${REF}' carries no digest; the signature and attestation are checked against whatever the tag resolves to right now."
+  echo "::error::${ROLE} image reference '${REF}' is not digest-pinned; supply a reference ending in @sha256:<64 lowercase hex>." >&2
+  exit 1
 fi
 
 WORK="$(mktemp -d)"
@@ -93,11 +95,15 @@ cosign_verify_with_either_timestamp "$WORK/signatures.json" verify \
   --certificate-identity "$IDENTITY" \
   --certificate-oidc-issuer "$ISSUER" \
   --output json "$REF"
-if [ "$(jq 'if type == "array" then length else 0 end' "$WORK/signatures.json")" -lt 1 ]; then
+if ! SIGNATURE_COUNT="$(jq -er 'if type == "array" then length else error("expected an array") end' "$WORK/signatures.json")"; then
+  echo "::error::${ROLE}: cosign returned malformed signature JSON for ${REF}." >&2
+  exit 1
+fi
+if [ "$SIGNATURE_COUNT" -lt 1 ]; then
   echo "::error::${ROLE}: cosign reported no signature for ${REF}." >&2
   exit 1
 fi
-if [ -n "$EXPECTED_DIGEST" ] && ! jq -e --arg d "sha256:${EXPECTED_DIGEST}" \
+if ! jq -e --arg d "sha256:${EXPECTED_DIGEST}" \
      'all(.[]; .critical.image["docker-manifest-digest"] == $d)' "$WORK/signatures.json" > /dev/null; then
   echo "::error::${ROLE}: the verified signature is on a different digest than ${REF}." >&2
   exit 1
@@ -109,23 +115,73 @@ cosign_verify_with_either_timestamp "$WORK/attestations.jsonl" verify-attestatio
   --certificate-identity "$IDENTITY" \
   --certificate-oidc-issuer "$ISSUER" \
   "$REF"
-# One DSSE envelope per line; the in-toto statement is its base64 payload.
-: > "$WORK/statements.jsonl"
-while IFS= read -r payload; do
-  [ -n "$payload" ] || continue
-  printf '%s' "$payload" | base64 -d >> "$WORK/statements.jsonl"
-  echo >> "$WORK/statements.jsonl"
-done < <(jq -r '.payload // empty' "$WORK/attestations.jsonl")
+# cosign can emit one DSSE envelope or direct in-toto statements per line, and
+# some versions emit a JSON array. Normalize both shapes before policy checks.
+if ! jq -ec '
+  if type == "array" then .[]
+  elif type == "object" then .
+  else error("expected an object or array of objects")
+  end
+' "$WORK/attestations.jsonl" > "$WORK/attestation_records.jsonl"; then
+  echo "::error::${ROLE}: cosign returned malformed attestation JSON for ${REF}." >&2
+  exit 1
+fi
+if [ ! -s "$WORK/attestation_records.jsonl" ]; then
+  echo "::error::${ROLE}: cosign returned no attestations for ${REF}." >&2
+  exit 1
+fi
 
-VERDICT="$(jq -s -r --arg d "$EXPECTED_DIGEST" --arg p "$EXPECTED_BUILDER_PREFIX" '
+: > "$WORK/statements.jsonl"
+while IFS= read -r record; do
+  if printf '%s\n' "$record" | jq -e 'type == "object" and has("payload")' > /dev/null; then
+    if ! payload="$(printf '%s\n' "$record" | jq -er '
+      if (.payload | type == "string" and length > 0)
+         and ((.payloadType // "application/vnd.in-toto+json") == "application/vnd.in-toto+json")
+      then .payload
+      else error("invalid DSSE payload or payloadType")
+      end
+    ')"; then
+      echo "::error::${ROLE}: cosign returned an invalid DSSE envelope for ${REF}." >&2
+      exit 1
+    fi
+    if ! printf '%s' "$payload" | base64 -d > "$WORK/statement.json"; then
+      echo "::error::${ROLE}: cosign returned an invalid base64 DSSE payload for ${REF}." >&2
+      exit 1
+    fi
+    if ! jq -e '
+      type == "object"
+      and .predicateType == "https://slsa.dev/provenance/v0.2"
+      and (.subject | type == "array")
+      and (.predicate | type == "object")
+    ' "$WORK/statement.json" > /dev/null; then
+      echo "::error::${ROLE}: DSSE payload is not an in-toto SLSA v0.2 statement for ${REF}." >&2
+      exit 1
+    fi
+    jq -c . "$WORK/statement.json" >> "$WORK/statements.jsonl"
+  elif printf '%s\n' "$record" | jq -e '
+    type == "object"
+    and .predicateType == "https://slsa.dev/provenance/v0.2"
+    and (.subject | type == "array")
+    and (.predicate | type == "object")
+  ' > /dev/null; then
+    printf '%s\n' "$record" >> "$WORK/statements.jsonl"
+  else
+    echo "::error::${ROLE}: cosign returned an unsupported attestation shape for ${REF}." >&2
+    exit 1
+  fi
+done < "$WORK/attestation_records.jsonl"
+
+if ! VERDICT="$(jq -s -r --arg d "$EXPECTED_DIGEST" --arg p "$EXPECTED_BUILDER_PREFIX" '
   map(select(.predicateType == "https://slsa.dev/provenance/v0.2"))
   | map({subjects: [.subject[]?.digest.sha256? // empty], builder: (.predicate.builder.id // "")})
-  | map(select(($d == "" or (.subjects | index($d) != null)) and (.builder | startswith($p))))
+  | map(select((.subjects | index($d) != null) and (.builder | startswith($p))))
   | if length > 0 then "ok " + .[0].builder else "none" end
-' "$WORK/statements.jsonl")"
+' "$WORK/statements.jsonl")"; then
+  echo "::error::${ROLE}: cosign returned malformed SLSA provenance for ${REF}." >&2
+  exit 1
+fi
 if [ "$VERDICT" = "none" ]; then
-  echo "::error::${ROLE}: no SLSA v0.2 provenance on ${REF} has subject sha256:${EXPECTED_DIGEST:-<tag>} and a builder under ${EXPECTED_BUILDER_PREFIX}. Statements seen:" >&2
-  jq -c '{predicateType, subjects: [.subject[]?.digest.sha256? // empty], builder: (.predicate.builder.id // "")}' "$WORK/statements.jsonl" >&2 || true
+  echo "::error::${ROLE}: no SLSA v0.2 provenance on ${REF} has subject sha256:${EXPECTED_DIGEST} and a builder under ${EXPECTED_BUILDER_PREFIX}." >&2
   exit 1
 fi
 echo "${ROLE}: signature and provenance verified — identity ${IDENTITY}, builder ${VERDICT#ok }"

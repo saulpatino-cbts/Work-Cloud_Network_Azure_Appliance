@@ -227,6 +227,24 @@ resource "azurerm_firewall_policy_rule_collection_group" "egress" {
     }
   }
 
+  dynamic "application_rule_collection" {
+    for_each = length(local.byo_ai_provider_fqdns) > 0 ? [local.byo_ai_provider_fqdns] : []
+    content {
+      name     = "allow-approved-byo-ai"
+      priority = 210
+      action   = "Allow"
+      rule {
+        name              = "allow-approved-byo-ai-https"
+        source_addresses  = [azurerm_subnet.container_apps_infra.address_prefixes[0]]
+        destination_fqdns = application_rule_collection.value
+        protocols {
+          type = "Https"
+          port = 443
+        }
+      }
+    }
+  }
+
   application_rule_collection {
     name     = "allow-web-outbound-baseline"
     priority = 200

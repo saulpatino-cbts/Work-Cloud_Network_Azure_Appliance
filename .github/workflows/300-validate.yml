@@ -45,6 +45,14 @@ jobs:
           python-version: "3.14"
       - name: Validate documentation model
         run: python3 scripts/validate_documentation_model.py
+      - name: Test image-signature verifier
+        run: bash scripts/ci/test_verify_image_signature.sh
+      - name: Test client configuration validation
+        run: bash scripts/ci/test_validate_client_config.sh
+      - name: Runner firewall lease regression tests
+        run: bash scripts/ci/test_runner_firewall_window.sh
+      - name: Destructive plan guard regression tests
+        run: python3 scripts/ci/test_refuse_destructive_plan.py
 
   terraform:
     name: Terraform fmt + validate
@@ -77,3 +85,8 @@ jobs:
             echo "::endgroup::"
           done
           exit "$failed"
+
+      - name: Test client BYO egress policy (mock providers, no cloud)
+        run: |
+          terraform -chdir=infra/terraform/environments/dev/platform test
+          terraform -chdir=infra/terraform/environments/prod/platform test

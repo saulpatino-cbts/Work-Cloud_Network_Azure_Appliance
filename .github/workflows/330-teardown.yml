@@ -47,12 +47,17 @@ env:
   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+  TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+  TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER }}
+  AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
   # Bind dispatch inputs to env so no run: block interpolates them into shell.
   ENVIRONMENT: ${{ github.event.inputs.environment }}
   CONFIRM: ${{ github.event.inputs.confirm }}
 
 concurrency:
-  group: deploy-azure-platform-${{ github.event.inputs.environment }}
+  group: azure-environment-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
@@ -61,7 +66,17 @@ jobs:
     name: Preflight safety check
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: ${{ inputs.environment == 'prod' && 'hub' || inputs.environment }}
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Validate client target before cloud login
+        env:
+          TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+          TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+          TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER }}
+          AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+        run: bash scripts/ci/validate_client_config.sh teardown
+
       - name: Validate confirmation string
         run: |
           if [[ "${CONFIRM}" != "DESTROY" ]]; then
@@ -73,8 +88,8 @@ jobs:
       - name: Block prod teardown on non-default branch
         if: github.event.inputs.environment == 'prod'
         run: |
-          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
-            echo "::error::Production teardown must be triggered from the main branch."
+          if [[ "$GITHUB_REF" != "refs/heads/${DEFAULT_BRANCH}" ]]; then
+            echo "::error::Production teardown must be triggered from the repository default branch."
             exit 1
           fi
 
@@ -136,19 +151,19 @@ jobs:
           fi
           echo "workload_rg=${WORKLOAD_RG}" >> "$GITHUB_OUTPUT"
 
-      - name: Delete workload resource group (async)
+      - name: Delete workload resource group and wait before clearing state
         env:
           WORKLOAD_RG: ${{ steps.names.outputs.workload_rg }}
         run: |
           RG="${WORKLOAD_RG}"
-          if ! az group show --name "$RG" --only-show-errors > /dev/null 2>&1; then
+          if [[ "$(az group exists --name "$RG")" == false ]]; then
             echo "Resource group $RG does not exist — nothing to delete."
             exit 0
           fi
           echo "Deleting resource group $RG asynchronously..."
           az group delete --name "$RG" --yes --no-wait
-          echo "Deletion initiated. Monitor progress in the Azure Portal or with:"
-          echo "  az group show --name $RG --query properties.provisioningState -o tsv"
+          az group wait --name "$RG" --deleted --interval 30 --timeout 2700
+          echo "Workload resource group deletion completed; state may now be cleared."
 
       - name: Clear Terraform state blobs (platform + workload)
         env:
@@ -163,12 +178,17 @@ jobs:
             "${ENVIRONMENT}.terraform.tfstate" \
             "${ENVIRONMENT}.workload.terraform.tfstate"; do
             echo "Clearing state blob: $KEY"
+            EXISTS=$(az storage blob exists \
+              --account-name "$VAR_TFSTATE_STORAGE_ACCOUNT" \
+              --container-name "$VAR_TFSTATE_CONTAINER" \
+              --name "$KEY" --auth-mode login --query exists -o tsv)
+            [[ "$EXISTS" == false ]] && continue
             az storage blob delete \
               --account-name "$VAR_TFSTATE_STORAGE_ACCOUNT" \
               --container-name "$VAR_TFSTATE_CONTAINER" \
               --name "$KEY" \
               --auth-mode login \
-              --only-show-errors || true
+              --only-show-errors --output none
           done
           echo "State files cleared — next deploy starts from a blank slate."
 
@@ -180,11 +200,7 @@ jobs:
     needs: terraform-destroy
     # Prod drift deletion is human-gated under `hub`; dev runs under dev.
     environment: ${{ github.event.inputs.environment == 'prod' && 'hub' || github.event.inputs.environment }}
-    # Non-blocking: the StaleAi targets all live inside the workload RG, which the
-    # terraform-destroy job already deletes, so this job is a best-effort sweep for
-    # any out-of-RG drift. A failure here (e.g. pwsh absent, nothing to clean) must
-    # not fail the teardown — the real destruction already happened upstream.
-    continue-on-error: true
+    # Cleanup failures stay visible and block optional backend deletion.
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
@@ -233,18 +249,16 @@ jobs:
   # `az group delete` path above bypasses it, so this job is the backstop that
   # infra/terraform/**/providers.tf refers to.
   #
-  # Runs REPO-LEVEL (no `environment:` key) on purpose: the purge API lives at a
-  # subscription-level ARM path (/providers/Microsoft.CognitiveServices/locations/
-  # .../deletedAccounts/...), which the RG-scoped Dev/Prod deploy SPs cannot
-  # reach — only the Main SP (subscription Contributor) can.
+  # Every destructive prod job uses hub. The client must grant the selected
+  # environment identity only the reviewed purge rights; never fall back to a
+  # broader repository-scoped identity to bypass an authorization failure.
   purge-soft-deleted:
     name: "Purge soft-deleted AI accounts (${{ github.event.inputs.environment }})"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: terraform-destroy
-    # Best-effort: the RG delete is async and can outlast the poll window below.
-    # A skipped purge just means the next deploy 409s and someone purges by hand.
-    continue-on-error: true
+    environment: ${{ inputs.environment == 'prod' && 'hub' || inputs.environment }}
+    # Workload deletion already completed; missing purge rights must stay visible.
     steps:
       - uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43
         with:
@@ -269,8 +283,8 @@ jobs:
               break
             fi
             if [[ "$i" == "90" ]]; then
-              echo "::warning::$RG still exists after 45 minutes — purge backstop skipped. Purge manually once deletion finishes: az cognitiveservices account list-deleted"
-              exit 0
+              echo "::error::$RG still exists after 45 minutes; refusing purge."
+              exit 1
             fi
             sleep 30
           done
@@ -295,17 +309,9 @@ jobs:
     timeout-minutes: 20
     needs: cleanup-drift
     if: github.event.inputs.destroy_tfstate_backend == 'true'
-    # Runs REPO-LEVEL (no `environment:`) on purpose, like purge-soft-deleted:
-    # this deletes the SEPARATE tfstate resource group + storage account, which
-    # only the repo-level Main SP (subscription Contributor) can reach — the
-    # env-scoped, RG-scoped Dev/Prod deploy SPs cannot. The prod human gate is
-    # still enforced: this job `needs: cleanup-drift → terraform-destroy`, and
-    # terraform-destroy runs under `hub` for prod, so a prod teardown cannot
-    # reach here without reviewer approval upstream.
-    # NOTE: repo-level (not an `environment:` gate) because the state backend
-    # lives in a subscription-scoped resource group outside the workload RG, which
-    # only the subscription-scoped Main SP can delete; an environment gate would
-    # switch OIDC to the RG-scoped deploy SP, which cannot.
+    # Backend deletion needs explicit client-owned rights on the backend RG.
+    # Missing rights must fail rather than switch to an ungated identity.
+    environment: ${{ inputs.environment == 'prod' && 'hub' || inputs.environment }}
     steps:
       - uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43
         with:
@@ -343,10 +349,10 @@ jobs:
           az storage account delete \
             --name "$VAR_TFSTATE_STORAGE_ACCOUNT" \
             --resource-group "${TF_STATE_RG}" \
-            --yes || true
+            --yes --output none
 
           az group delete \
             --name "${TF_STATE_RG}" \
-            --yes --no-wait || true
+            --yes --output none
 
-          echo "State backend RG deletion initiated (--no-wait). Run 000-bootstrap-backend to recreate."
+          echo "State backend RG deletion completed. Run 000-bootstrap-backend only for an approved rebuild."

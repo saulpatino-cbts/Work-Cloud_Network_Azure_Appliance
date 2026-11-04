@@ -55,14 +55,14 @@ permissions:
 # Serialize redeploys per environment so two overlapping runs don't race to
 # update the same Container Apps revision; don't cancel an in-flight rollout.
 concurrency:
-  group: fast-redeploy-${{ inputs.environment }}
+  group: azure-environment-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment == 'prod' && 'hub' || inputs.environment }}
     steps:
       - name: Validate — at least one image must be specified
         env:
@@ -80,14 +80,12 @@ jobs:
 
           # Shared across both appliances (T-701) — keep byte-identical.
           # Validates a container image reference for a role. NS is the Docker Hub
-          # namespace ($DOCKERHUB_NAMESPACE). Refuses floating/empty; accepts a
-          # digest-pinned reference; accepts (with a warning) a tag-only reference;
-          # refuses anything else (wrong namespace, wrong role, extra characters).
+          # namespace ($DOCKERHUB_NAMESPACE). Requires a digest-pinned reference
+          # and refuses empty, floating, tag-only, or malformed references.
           validate_image_ref() {
             local ROLE="$1" REF="$2"
             local NS="${DOCKERHUB_NAMESPACE}"
             local PINNED="^docker\.io/${NS}/cna:${ROLE}-sha-[0-9a-f]{7}@sha256:[0-9a-f]{64}$"
-            local TAG_ONLY="^docker\.io/${NS}/cna:${ROLE}-sha-[0-9a-f]{7}$"
             local HOWTO="get a pinned reference from 230 (Image Update), the core's .deployment-catalog/latest-build.json (images.${ROLE} + digests.${ROLE}), or the update-available issue"
             if [ -z "$REF" ]; then
               echo "::error::${ROLE} image reference is empty (floating references are refused); ${HOWTO}."
@@ -98,10 +96,6 @@ jobs:
               return 1
             fi
             if [[ "$REF" =~ $PINNED ]]; then
-              return 0
-            fi
-            if [[ "$REF" =~ $TAG_ONLY ]]; then
-              echo "::warning::${ROLE} image reference '${REF}' is a tag-only reference; digest not pinned."
               return 0
             fi
             echo "::error::${ROLE} image reference '${REF}' is not a valid pinned reference; ${HOWTO}."
@@ -122,6 +116,27 @@ jobs:
       # runs). The checkout is for that script only.
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Validate client target before cloud login
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+          TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+          TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER }}
+          AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+          DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          INPUT_RG: ${{ inputs.resource_group }}
+        run: |
+          bash scripts/ci/validate_client_config.sh refresh
+          if [[ -n "$INPUT_RG" && "$INPUT_RG" != "${TFSTATE_RESOURCE_GROUP%-tfstate}" ]]; then
+            echo "::error::resource_group must match this environment's configured workload resource group."
+            exit 1
+          fi
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
@@ -189,7 +204,7 @@ jobs:
           az containerapp update \
             --name "$API_APP" \
             --resource-group "$RESOURCE_GROUP" \
-            --image "$API_IMAGE"
+            --image "$API_IMAGE" --output none
 
       - name: Update cna-worker image
         if: inputs.worker_image != ''
@@ -201,7 +216,7 @@ jobs:
           az containerapp update \
             --name "$WORKER_APP" \
             --resource-group "$RESOURCE_GROUP" \
-            --image "$WORKER_IMAGE"
+            --image "$WORKER_IMAGE" --output none
 
       - name: Update cna-web image
         if: inputs.web_image != ''
@@ -213,7 +228,7 @@ jobs:
           az containerapp update \
             --name "$WEB_APP" \
             --resource-group "$RESOURCE_GROUP" \
-            --image "$WEB_IMAGE"
+            --image "$WEB_IMAGE" --output none
 
       - name: Verify cna-web health after update
         if: inputs.web_image != ''
@@ -231,7 +246,8 @@ jobs:
             "https://${WEB_FQDN}/api/health" || echo "000")
           echo "Health check status: $STATUS"
           if [ "$STATUS" != "200" ]; then
-            echo "::warning::cna-web /api/health returned $STATUS — check Application Insights for errors."
+            echo "::error::cna-web /api/health returned $STATUS — check Application Insights for errors."
+            exit 1
           fi
 
       - name: Summary

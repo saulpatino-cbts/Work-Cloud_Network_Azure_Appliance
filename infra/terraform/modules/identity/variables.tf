@@ -1,3 +1,10 @@
+variable "bootstrap_ip_rules" {
+  description = "Temporary deployment-runner IP rules at vault creation; workflows remove these after Terraform. Runtime traffic uses Private Link."
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
 variable "resource_group_name" {
   description = "Resource group name for identity resources"
   type        = string

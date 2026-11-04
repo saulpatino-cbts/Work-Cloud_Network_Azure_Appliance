@@ -128,23 +128,17 @@ on:
         default: ""
         type: string
 permissions:
-  actions: write
-  contents: write
+  contents: read
   id-token: write
-  security-events: write
-  attestations: write
 
 concurrency:
-  group: deploy-${{ inputs.environment || 'schedule' }}
+  group: azure-environment-${{ inputs.environment }}
   cancel-in-progress: false
 
 env:
   TF_IN_AUTOMATION: true
+  TF_INPUT: false
   ARM_USE_OIDC: true
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
   AZURE_MONITOR_HEALTH_THRESHOLD: "95"
   APP_INSIGHTS_SUCCESS_THRESHOLD: "0.99"
   CERTIFICATE_EXPIRY_DAYS_THRESHOLD: "30"
@@ -159,7 +153,6 @@ env:
   # the manifest, the dispatch payload or an input — the issuer every GitHub
   # Actions signer shares, and the cosign release that verifies them (keep in
   # step with the core's COSIGN_VERSION).
-  IMAGE_SIGNING_IDENTITY: ${{ vars.IMAGE_SIGNING_IDENTITY }}
   SIGSTORE_OIDC_ISSUER: https://token.actions.githubusercontent.com
   COSIGN_VERSION: v3.1.3
   # Bind untrusted/dispatch-supplied inputs to env once, workflow-wide, so no
@@ -176,6 +169,7 @@ env:
 jobs:
   policy-gates:
     if: inputs.environment != ''
+    environment: ${{ inputs.environment == 'prod' && 'hub' || inputs.environment }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -188,6 +182,38 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 0
+
+      - &client-configuration
+        name: Validate client deployment configuration
+        working-directory: .
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+          TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+          TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER }}
+          AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          FOUNDRY_LOCATION: ${{ vars.FOUNDRY_LOCATION }}
+          FOUNDRY_ACCOUNT_NAME: ${{ vars.FOUNDRY_ACCOUNT_NAME }}
+          FOUNDRY_PROJECT_NAME: ${{ vars.FOUNDRY_PROJECT_NAME }}
+          CNA_ENTRA_CLIENT_ID: ${{ vars.CNA_ENTRA_CLIENT_ID }}
+          CNA_NEXTAUTH_URL: ${{ vars.CNA_NEXTAUTH_URL }}
+          CNA_AI_ENGINE_DEFAULT: ${{ vars.CNA_AI_ENGINE_DEFAULT }}
+          CNA_BYO_AI_PROVIDERS: ${{ vars.CNA_BYO_AI_PROVIDERS || '[]' }}
+          DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+          IMAGE_SIGNING_IDENTITY: ${{ vars.IMAGE_SIGNING_IDENTITY }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          CNA_POSTGRES_ADMIN_PASSWORD: ${{ secrets.CNA_POSTGRES_ADMIN_PASSWORD }}
+          CNA_ENTRA_CLIENT_SECRET: ${{ secrets.CNA_ENTRA_CLIENT_SECRET }}
+          CNA_NEXTAUTH_SECRET: ${{ secrets.CNA_NEXTAUTH_SECRET }}
+          CNA_CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CNA_CREDENTIAL_ENCRYPTION_KEY }}
+          LOCAL_ADMIN_PASSWORD: ${{ secrets.LOCAL_ADMIN_PASSWORD }}
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+        run: bash scripts/ci/validate_client_config.sh deploy --export
 
       # Deploy by digest: every image is a pinned reference supplied by the
       # caller — 230 · Image Update, the core's latest-build.json, or the
@@ -214,14 +240,12 @@ jobs:
 
           # Shared across both appliances (T-701) — keep byte-identical.
           # Validates a container image reference for a role. NS is the Docker Hub
-          # namespace ($DOCKERHUB_NAMESPACE). Refuses floating/empty; accepts a
-          # digest-pinned reference; accepts (with a warning) a tag-only reference;
-          # refuses anything else (wrong namespace, wrong role, extra characters).
+          # namespace ($DOCKERHUB_NAMESPACE). Requires a digest-pinned reference
+          # and refuses empty, floating, tag-only, or malformed references.
           validate_image_ref() {
             local ROLE="$1" REF="$2"
             local NS="${DOCKERHUB_NAMESPACE}"
             local PINNED="^docker\.io/${NS}/cna:${ROLE}-sha-[0-9a-f]{7}@sha256:[0-9a-f]{64}$"
-            local TAG_ONLY="^docker\.io/${NS}/cna:${ROLE}-sha-[0-9a-f]{7}$"
             local HOWTO="get a pinned reference from 230 (Image Update), the core's .deployment-catalog/latest-build.json (images.${ROLE} + digests.${ROLE}), or the update-available issue"
             if [ -z "$REF" ]; then
               echo "::error::${ROLE} image reference is empty (floating references are refused); ${HOWTO}."
@@ -232,10 +256,6 @@ jobs:
               return 1
             fi
             if [[ "$REF" =~ $PINNED ]]; then
-              return 0
-            fi
-            if [[ "$REF" =~ $TAG_ONLY ]]; then
-              echo "::warning::${ROLE} image reference '${REF}' is a tag-only reference; digest not pinned."
               return 0
             fi
             echo "::error::${ROLE} image reference '${REF}' is not a valid pinned reference; ${HOWTO}."
@@ -285,6 +305,7 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: Azure login with OIDC
+        id: azure_login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43  # v3.0.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -451,7 +472,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: policy-gates
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment == 'prod' && 'hub' || inputs.environment }}
     defaults:
       run:
         working-directory: infra/terraform/environments/${{ inputs.environment }}/platform
@@ -474,12 +495,18 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - *client-configuration
+
       - name: Azure login with OIDC
+        id: azure_login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43  # v3.0.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Reconcile abandoned runner firewall leases
+        run: bash scripts/ci/runner_firewall_window.sh prepare
 
       - name: Verify target subscription
         env:
@@ -591,7 +618,7 @@ jobs:
           fi
 
           if az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$WORKLOAD_RG" --only-show-errors > /dev/null 2>&1; then
-            RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
+            RUNNER_IP="${RUNNER_FIREWALL_IP:?Tracked runner IP required}"
             az keyvault update \
               --name "$KEY_VAULT_NAME" \
               --resource-group "$WORKLOAD_RG" \
@@ -635,7 +662,7 @@ jobs:
       - name: Ensure storage account is reachable during Terraform
         working-directory: infra/terraform/environments/${{ inputs.environment }}/workload
         run: |
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
+          RUNNER_IP="${RUNNER_FIREWALL_IP:?Tracked runner IP required}"
           if [ -z "$RUNNER_IP" ]; then
             echo "::warning::Could not determine the runner's public IP; storage data-plane calls may be refused by the firewall."
             exit 0
@@ -693,14 +720,12 @@ jobs:
           set -euo pipefail
           # Shared across both appliances (T-701) — keep byte-identical.
           # Validates a container image reference for a role. NS is the Docker Hub
-          # namespace ($DOCKERHUB_NAMESPACE). Refuses floating/empty; accepts a
-          # digest-pinned reference; accepts (with a warning) a tag-only reference;
-          # refuses anything else (wrong namespace, wrong role, extra characters).
+          # namespace ($DOCKERHUB_NAMESPACE). Requires a digest-pinned reference
+          # and refuses empty, floating, tag-only, or malformed references.
           validate_image_ref() {
             local ROLE="$1" REF="$2"
             local NS="${DOCKERHUB_NAMESPACE}"
             local PINNED="^docker\.io/${NS}/cna:${ROLE}-sha-[0-9a-f]{7}@sha256:[0-9a-f]{64}$"
-            local TAG_ONLY="^docker\.io/${NS}/cna:${ROLE}-sha-[0-9a-f]{7}$"
             local HOWTO="get a pinned reference from 230 (Image Update), the core's .deployment-catalog/latest-build.json (images.${ROLE} + digests.${ROLE}), or the update-available issue"
             if [ -z "$REF" ]; then
               echo "::error::${ROLE} image reference is empty (floating references are refused); ${HOWTO}."
@@ -711,10 +736,6 @@ jobs:
               return 1
             fi
             if [[ "$REF" =~ $PINNED ]]; then
-              return 0
-            fi
-            if [[ "$REF" =~ $TAG_ONLY ]]; then
-              echo "::warning::${ROLE} image reference '${REF}' is a tag-only reference; digest not pinned."
               return 0
             fi
             echo "::error::${ROLE} image reference '${REF}' is not a valid pinned reference; ${HOWTO}."
@@ -772,6 +793,7 @@ jobs:
           client-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       # Platform = networking only (vnet, subnets, firewall). It declares no app
       # variables, so plan with defaults — passing app vars here would error with
@@ -821,7 +843,9 @@ jobs:
           TF_VAR_container_registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
           TF_VAR_credential_encryption_key: ${{ secrets.CNA_CREDENTIAL_ENCRYPTION_KEY }}
           TF_VAR_github_token: ${{ steps.app-token.outputs.token }}
+          TF_VAR_local_admin_password: ${{ secrets.LOCAL_ADMIN_PASSWORD }}
         run: |
+          [ -n "$TF_VAR_local_admin_password" ] || unset TF_VAR_local_admin_password
           optional_var() {
             local VALUE="$1"
             if [[ -z "$VALUE" || "$VALUE" == "none" ]]; then
@@ -836,7 +860,7 @@ jobs:
           AI_MODE="${AI_MODE}"
           AI_ENGINE_DEFAULT=$(optional_var "$VAR_AI_ENGINE_DEFAULT")
           if [ "$AI_MODE" = "byo-api" ]; then
-            case "$AI_ENGINE_DEFAULT" in anthropic|openai) ;; *) AI_ENGINE_DEFAULT="anthropic" ;; esac
+            case "$AI_ENGINE_DEFAULT" in anthropic|openai) ;; *) echo "::error::Set CNA_AI_ENGINE_DEFAULT to an approved BYO provider."; exit 1 ;; esac
           else
             AI_ENGINE_DEFAULT="azure-openai"
           fi
@@ -920,22 +944,23 @@ jobs:
 
       - name: Terraform plan summary
         if: always()
-        # Saved plan files are NOT uploaded as artifacts: a binary plan stores
-        # every input variable value (DB password, client secrets, encryption
-        # key) in plaintext (DEVOPS-002). The apply job re-plans anyway. Only the
-        # human-readable `terraform show` output, which redacts sensitive values,
-        # goes to the step summary.
+        working-directory: .
+        # Do not publish plan values, even terraform show text: provider-generated
+        # values and future schema mistakes may not carry a sensitivity marker.
         run: |
           {
             echo "## Terraform plan (${ENVIRONMENT})"
-            echo "_Plan files are not uploaded; sensitive values below are redacted by terraform show. The apply job re-plans._"
+            echo "_Only action counts are published. Plans remain local to the runner; apply re-plans after approval._"
             for layer in platform workload; do
               dir="infra/terraform/environments/${ENVIRONMENT}/${layer}"
               echo "<details><summary>${layer}</summary>"
               echo
               echo '```'
               if [ -f "${dir}/tfplan" ]; then
-                terraform -chdir="${dir}" show -no-color tfplan 2>&1 || echo "(unable to render ${layer} plan)"
+                terraform -chdir="${dir}" show -json tfplan | jq -r '
+                  [.resource_changes[]?.change.actions | join("+")]
+                  | sort | group_by(.)[] | "\(.[0]): \(length)"
+                '
               else
                 echo "(no ${layer} plan produced)"
               fi
@@ -950,55 +975,16 @@ jobs:
           name: deployment-manifest-${{ inputs.environment }}
           path: .deployment-catalog/${{ inputs.environment }}/deployment-manifest.json
 
-      - name: Remove Runner IP from Key Vault
+      - name: Remove local secret-bearing plan files
         if: always()
-        env:
-          VAR_KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
-          VAR_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
-          VAR_TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+        working-directory: .
         run: |
-          REGION_SHORT=${VAR_REGION_SHORT}
-          if [[ -n "$VAR_TFSTATE_RESOURCE_GROUP" && "$VAR_TFSTATE_RESOURCE_GROUP" == *-tfstate ]]; then
-            WORKLOAD_RG="$VAR_TFSTATE_RESOURCE_GROUP"
-            WORKLOAD_RG="${WORKLOAD_RG%-tfstate}"
-          else
-            WORKLOAD_RG="rg-cna-${ENVIRONMENT}-${REGION_SHORT}"
-          fi
-          # Trust the Terraform-maintained KEY_VAULT_NAME variable (the real name
-          # carries a suffix), but only if it matches THIS environment's prefix —
-          # the variable is repo-level and both env workloads write it (last
-          # apply wins). Bare "-kv" is the pre-first-apply fallback.
-          KEY_VAULT_NAME="$VAR_KEY_VAULT_NAME"
-          if [[ "$KEY_VAULT_NAME" != "${WORKLOAD_RG#rg-}-kv"* ]]; then
-            # Variable missing or belongs to the other environment — resolve the
-            # real vault (name carries a suffix, e.g. -kv2) from Azure instead of
-            # guessing.
-            KEY_VAULT_NAME=$(az keyvault list -g "$WORKLOAD_RG" --query "[?starts_with(name, '${WORKLOAD_RG#rg-}-kv')].name | [0]" -o tsv 2>/dev/null || echo "")
-            KEY_VAULT_NAME="${KEY_VAULT_NAME:-${WORKLOAD_RG#rg-}-kv}"
-          fi
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
-          if [[ -n "$RUNNER_IP" ]]; then
-            az keyvault network-rule remove --name "$KEY_VAULT_NAME" --resource-group "$WORKLOAD_RG" --ip-address "$RUNNER_IP" --only-show-errors >/dev/null 2>&1 || true
-          fi
+          rm -f -- "infra/terraform/environments/${ENVIRONMENT}/platform/tfplan" \
+            "infra/terraform/environments/${ENVIRONMENT}/workload/tfplan"
 
-      - name: Remove Runner IP from storage account
-        if: always()
-        working-directory: infra/terraform/environments/${{ inputs.environment }}/workload
-        run: |
-          NAME="${STORAGE_ACCOUNT_NAME:-}"
-          RG="${STORAGE_ACCOUNT_RG:-}"
-          if [ -z "$NAME" ]; then
-            # First apply of an environment: the account was created during this
-            # run with the runner IP baked into ip_rules — resolve it from state.
-            NAME=$(terraform output -raw storage_account_name 2>/dev/null || echo "")
-            if [ -n "$NAME" ]; then
-              RG=$(az storage account show --name "$NAME" --query resourceGroup -o tsv --only-show-errors 2>/dev/null || echo "")
-            fi
-          fi
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
-          if [ -n "$NAME" ] && [ -n "$RG" ] && [ -n "$RUNNER_IP" ]; then
-            az storage account network-rule remove --account-name "$NAME" --resource-group "$RG" --ip-address "$RUNNER_IP" --only-show-errors >/dev/null 2>&1 || true
-          fi
+      - name: Reconcile runner firewall leases
+        if: always() && steps.azure_login.outcome == 'success'
+        run: bash scripts/ci/runner_firewall_window.sh cleanup
 
   apply:
     if: inputs.environment != ''
@@ -1035,12 +1021,18 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - *client-configuration
+
       - name: Azure login with OIDC
+        id: azure_login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43  # v3.0.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Reconcile abandoned runner firewall leases
+        run: bash scripts/ci/runner_firewall_window.sh prepare
 
       - name: Verify Azure Resource Provider registration
         run: |
@@ -1131,7 +1123,7 @@ jobs:
           fi
 
           if az keyvault show --name "$KEY_VAULT_NAME" --resource-group "$WORKLOAD_RG" --only-show-errors > /dev/null 2>&1; then
-            RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
+            RUNNER_IP="${RUNNER_FIREWALL_IP:?Tracked runner IP required}"
             az keyvault update \
               --name "$KEY_VAULT_NAME" \
               --resource-group "$WORKLOAD_RG" \
@@ -1175,7 +1167,7 @@ jobs:
       - name: Ensure storage account is reachable during Terraform
         working-directory: infra/terraform/environments/${{ inputs.environment }}/workload
         run: |
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
+          RUNNER_IP="${RUNNER_FIREWALL_IP:?Tracked runner IP required}"
           if [ -z "$RUNNER_IP" ]; then
             echo "::warning::Could not determine the runner's public IP; storage data-plane calls may be refused by the firewall."
             exit 0
@@ -1223,6 +1215,7 @@ jobs:
           client-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       # Applying a saved plan file (-out=tfplan) re-uses the variable values captured
       # at plan time, so no -var / TF_VAR_* are passed here — Terraform rejects vars
@@ -1238,6 +1231,7 @@ jobs:
       - name: Refuse a platform plan that destroys protected data
         env:
           PROTECTED_RESOURCE_TYPES: azurerm_log_analytics_workspace,azurerm_postgresql_flexible_server,azurerm_storage_account,azurerm_cognitive_account,azurerm_cognitive_deployment
+          PROTECTED_RESOURCE_ADDRESSES: module.ai[0].azapi_resource.foundry_project,module.ai.azapi_resource.foundry_project
           PLAN_LABEL: ${{ inputs.environment }}/platform
         run: terraform show -json tfplan | python3 "$GITHUB_WORKSPACE/scripts/ci/refuse_destructive_plan.py"
 
@@ -1274,7 +1268,9 @@ jobs:
           TF_VAR_container_registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
           TF_VAR_credential_encryption_key: ${{ secrets.CNA_CREDENTIAL_ENCRYPTION_KEY }}
           TF_VAR_github_token: ${{ steps.app-token.outputs.token }}
+          TF_VAR_local_admin_password: ${{ secrets.LOCAL_ADMIN_PASSWORD }}
         run: |
+          [ -n "$TF_VAR_local_admin_password" ] || unset TF_VAR_local_admin_password
           optional_var() {
             local VALUE="$1"
             if [[ -z "$VALUE" || "$VALUE" == "none" ]]; then
@@ -1289,7 +1285,7 @@ jobs:
           AI_MODE="${AI_MODE}"
           AI_ENGINE_DEFAULT=$(optional_var "$VAR_AI_ENGINE_DEFAULT")
           if [ "$AI_MODE" = "byo-api" ]; then
-            case "$AI_ENGINE_DEFAULT" in anthropic|openai) ;; *) AI_ENGINE_DEFAULT="anthropic" ;; esac
+            case "$AI_ENGINE_DEFAULT" in anthropic|openai) ;; *) echo "::error::Set CNA_AI_ENGINE_DEFAULT to an approved BYO provider."; exit 1 ;; esac
           else
             AI_ENGINE_DEFAULT="azure-openai"
           fi
@@ -1326,6 +1322,7 @@ jobs:
         working-directory: infra/terraform/environments/${{ inputs.environment }}/workload
         env:
           PROTECTED_RESOURCE_TYPES: azurerm_log_analytics_workspace,azurerm_postgresql_flexible_server,azurerm_storage_account,azurerm_cognitive_account,azurerm_cognitive_deployment
+          PROTECTED_RESOURCE_ADDRESSES: module.ai[0].azapi_resource.foundry_project,module.ai.azapi_resource.foundry_project
           PLAN_LABEL: ${{ inputs.environment }}/workload
         run: terraform show -json tfplan | python3 "$GITHUB_WORKSPACE/scripts/ci/refuse_destructive_plan.py"
 
@@ -1846,69 +1843,29 @@ jobs:
           name: staged-deployment-manifest-${{ inputs.environment }}
           path: .deployment-catalog/${{ inputs.environment }}/deployment-manifest.json
 
-      - name: Remove Runner IP from Key Vault
-        if: always()
-        env:
-          VAR_KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
-          VAR_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
-          VAR_TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
-        run: |
-          REGION_SHORT=${VAR_REGION_SHORT}
-          if [[ -n "$VAR_TFSTATE_RESOURCE_GROUP" && "$VAR_TFSTATE_RESOURCE_GROUP" == *-tfstate ]]; then
-            WORKLOAD_RG="$VAR_TFSTATE_RESOURCE_GROUP"
-            WORKLOAD_RG="${WORKLOAD_RG%-tfstate}"
-          else
-            WORKLOAD_RG="rg-cna-${ENVIRONMENT}-${REGION_SHORT}"
-          fi
-          # Trust the Terraform-maintained KEY_VAULT_NAME variable (the real name
-          # carries a suffix), but only if it matches THIS environment's prefix —
-          # the variable is repo-level and both env workloads write it (last
-          # apply wins). Bare "-kv" is the pre-first-apply fallback.
-          KEY_VAULT_NAME="$VAR_KEY_VAULT_NAME"
-          if [[ "$KEY_VAULT_NAME" != "${WORKLOAD_RG#rg-}-kv"* ]]; then
-            # Variable missing or belongs to the other environment — resolve the
-            # real vault (name carries a suffix, e.g. -kv2) from Azure instead of
-            # guessing.
-            KEY_VAULT_NAME=$(az keyvault list -g "$WORKLOAD_RG" --query "[?starts_with(name, '${WORKLOAD_RG#rg-}-kv')].name | [0]" -o tsv 2>/dev/null || echo "")
-            KEY_VAULT_NAME="${KEY_VAULT_NAME:-${WORKLOAD_RG#rg-}-kv}"
-          fi
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
-          if [[ -n "$RUNNER_IP" ]]; then
-            az keyvault network-rule remove --name "$KEY_VAULT_NAME" --resource-group "$WORKLOAD_RG" --ip-address "$RUNNER_IP" --only-show-errors >/dev/null 2>&1 || true
-          fi
-
-      - name: Remove Runner IP from storage account
-        if: always()
-        working-directory: infra/terraform/environments/${{ inputs.environment }}/workload
-        run: |
-          NAME="${STORAGE_ACCOUNT_NAME:-}"
-          RG="${STORAGE_ACCOUNT_RG:-}"
-          if [ -z "$NAME" ]; then
-            # First apply of an environment: the account was created during this
-            # run with the runner IP baked into ip_rules — resolve it from state.
-            NAME=$(terraform output -raw storage_account_name 2>/dev/null || echo "")
-            if [ -n "$NAME" ]; then
-              RG=$(az storage account show --name "$NAME" --query resourceGroup -o tsv --only-show-errors 2>/dev/null || echo "")
-            fi
-          fi
-          RUNNER_IP=$(curl -s https://api.ipify.org || echo "")
-          if [ -n "$NAME" ] && [ -n "$RG" ] && [ -n "$RUNNER_IP" ]; then
-            az storage account network-rule remove --account-name "$NAME" --resource-group "$RG" --ip-address "$RUNNER_IP" --only-show-errors >/dev/null 2>&1 || true
-          fi
+      - name: Reconcile runner firewall leases
+        if: always() && steps.azure_login.outcome == 'success'
+        run: bash scripts/ci/runner_firewall_window.sh cleanup
 
   verify:
     if: inputs.environment != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: apply
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment == 'prod' && 'hub' || inputs.environment }}
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 0
 
+      - *client-configuration
+
       - name: Azure login with OIDC
+        id: azure_login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43  # v3.0.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}

@@ -14,9 +14,10 @@ locals {
   # Bring-your-own AI providers are public SaaS endpoints reached through the
   # firewall; saas mode reaches Azure OpenAI over a private endpoint instead,
   # so these are opened only when the workload runs byo-api.
-  byo_ai_provider_fqdns = var.ai_mode == "byo-api" ? ["api.anthropic.com", "api.openai.com"] : []
+  byo_ai_provider_hosts = { anthropic = "api.anthropic.com", openai = "api.openai.com" }
+  byo_ai_provider_fqdns = var.ai_mode == "byo-api" ? [for provider in sort(tolist(var.byo_ai_providers)) : local.byo_ai_provider_hosts[provider]] : []
 
-  firewall_application_rule_fqdns = concat(local.firewall_application_rule_base_fqdns, local.byo_ai_provider_fqdns)
+  firewall_application_rule_fqdns = local.firewall_application_rule_base_fqdns
 
   firewall_application_rule_base_fqdns = [
     "index.docker.io",

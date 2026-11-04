@@ -38,7 +38,7 @@ module "storage" {
   resource_group_name = data.azurerm_resource_group.this.name
   location            = data.azurerm_resource_group.this.location
   name_prefix         = local.name_prefix
-  tags                = local.tags
+  tags                = merge(local.tags, var.deploy_runner_ip != "" ? { CnaRunnerIp = var.deploy_runner_ip } : {})
 
   # GZRS satisfies the curated Checkov geo-replication gate (CKV_AZURE_206).
   replication_type            = "GZRS"
@@ -57,7 +57,8 @@ module "identity" {
   location            = data.azurerm_resource_group.this.location
   name_prefix         = local.name_prefix
   tenant_id           = var.tenant_id
-  tags                = local.tags
+  tags                = merge(local.tags, var.deploy_runner_ip != "" ? { CnaRunnerIp = var.deploy_runner_ip } : {})
+  bootstrap_ip_rules  = var.deploy_runner_ip != "" ? [var.deploy_runner_ip] : []
 
   # Tenant policy requires purge protection on all Key Vaults (new and prod).
   # 90-day retention is paired with purge protection per Azure best practice.
@@ -162,7 +163,7 @@ module "compute" {
       CREDENTIAL_ENCRYPTION_KEY = "credential-encryption-key"
       CNA_API_TOKEN             = "api-token" # bearer token cna-web sends to cna-api
     },
-    var.local_admin_password != null ? { LOCAL_ADMIN_PASSWORD = "local-admin-password" } : {},
+    nonsensitive(var.local_admin_password != null) ? { LOCAL_ADMIN_PASSWORD = "local-admin-password" } : {},
     # Same Container App secret the registry block pulls with (compute module).
     local.use_registry_credentials ? { CNA_IMAGE_REGISTRY_TOKEN = "container-registry-password" } : {},
   )
@@ -193,7 +194,7 @@ module "compute" {
       "credential-encryption-key" = "${module.identity.key_vault_uri}secrets/cna-credential-encryption-key"
       "api-token"                 = "${module.identity.key_vault_uri}secrets/cna-api-token"
     },
-    var.local_admin_password != null ? { "local-admin-password" = "${module.identity.key_vault_uri}secrets/cna-local-admin-password" } : {}
+    nonsensitive(var.local_admin_password != null) ? { "local-admin-password" = "${module.identity.key_vault_uri}secrets/cna-local-admin-password" } : {}
   )
   key_vault_reference_identity_id = module.identity.managed_identity_id
 
@@ -214,8 +215,8 @@ module "ai" {
 
   environment          = var.environment
   foundry_location     = var.foundry_location
-  foundry_account_name = "cna-prod-eus2-aif"
-  foundry_project_name = "cna-prod-eus2-aif-proj"
+  foundry_account_name = local.foundry_account_name
+  foundry_project_name = local.foundry_project_name
 }
 
 # Adding count re-addresses every resource in the module (module.ai ->
@@ -346,6 +347,7 @@ resource "azurerm_role_assignment" "worker_foundry_user" {
 
 
 module "security" {
+  frontdoor_custom_domain_host_name  = endswith(var.nextauth_url, ".azurefd.net") ? "" : trimprefix(var.nextauth_url, "https://")
   frontdoor_certificate_pfx_path     = var.frontdoor_certificate_pfx_path
   frontdoor_certificate_pfx_password = var.frontdoor_certificate_pfx_password
   source                             = "../../../modules/security"
@@ -446,7 +448,7 @@ resource "github_actions_environment_variable" "cna_nextauth_url" {
   repository    = var.github_repository
   environment   = each.key
   variable_name = "CNA_NEXTAUTH_URL"
-  value         = "https://${module.security.frontdoor_endpoint_host_name}"
+  value         = var.nextauth_url
 }
 
 resource "github_actions_environment_variable" "key_vault_name" {
