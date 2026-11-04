@@ -16,11 +16,15 @@ GitHub protection rules, OIDC credentials or Azure roles. R-001/R-002/R-006/R-00
 remain owner-gated; the historical problem statements below are context, not assertions about
 the current tenant or repository settings. In particular, no old plan artifact was deleted
 and no credential was rotated.
-The coordinator reports Core's allowlist reader exists locally; it is not published or
-runtime-verified. Independent re-review accepted Foundry identity and portal-journaling fixes;
+[saulpatino-cbts/Work-Cloud_Network_Core#102](https://github.com/saulpatino-cbts/Work-Cloud_Network_Core/pull/102)
+and [saulpatino-cbts/Work-Cloud_Network_AWS_Appliance#38](https://github.com/saulpatino-cbts/Work-Cloud_Network_AWS_Appliance/pull/38)
+are verified merged; Azure
+signed-image consumption, runtime/provider denial and final sibling parity remain unverified.
+Independent re-review accepted Foundry identity and portal-journaling fixes;
 the final narrowed project guard is implemented/tested but final review acceptance is pending.
-Merge readiness also requires approval of the existing `230` scheduled/dispatch dev releases
-and `350` scheduled firewall writes; `360` remains manual and still writes firewall rules.
+The user approved the remaining merges after disclosure of the existing `230`
+scheduled/dispatch dev releases and `350` scheduled firewall writes; this approval does not
+authorize manual deployment or workflow enablement. `360` remains manual and still writes firewall rules.
 Read-only Actions state on 2026-11-04 found `230` active and `350` manually disabled;
 the daily `350` YAML is not proof of active reconciliation. No enable/disable setting was changed.
 No Core release, image publication or appliance deployment is authorized by local preservation.
@@ -46,8 +50,8 @@ No Core release, image publication or appliance deployment is authorized by loca
 **Problem**
 `ai_mode: byo-api` stores admin-entered Anthropic/OpenAI API keys AES-256-GCM encrypted in the
 application database and opens Azure Firewall egress to `api.anthropic.com` and `api.openai.com`.
-The implementation lives in the core repository. Its new allowlist reader is reported locally
-implemented, not published/runtime-verified; human security review and actual image/network
+The implementation lives in the core repository. Its allowlist implementation is merged, but Azure consumption of
+its signed images and runtime behavior are not verified; human security review and actual image/network
 acceptance are required before customer traffic. Azure network rules alone are not app policy.
 
 **Required owner**
