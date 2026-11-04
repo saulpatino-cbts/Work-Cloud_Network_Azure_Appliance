@@ -104,11 +104,11 @@ run "break_glass_hash_is_optional" {
     storage_account_id            = "/subscriptions/22222222-2222-4222-8222-222222222222/resourceGroups/rg-cna-dev-weu/providers/Microsoft.Storage/storageAccounts/clientteststorage"
     key_vault_id                  = "/subscriptions/22222222-2222-4222-8222-222222222222/resourceGroups/rg-cna-dev-weu/providers/Microsoft.KeyVault/vaults/clienttestvault"
     managed_identity_principal_id = "44444444-4444-4444-8444-444444444444"
-    database_url                  = "synthetic-test-only"
+    database_url                  = var.fixture_value
     nextauth_secret               = var.fixture_value
-    entra_client_secret           = "synthetic-test-only"
-    credential_encryption_key     = "synthetic-test-only"
-    api_token                     = "synthetic-test-only"
+    entra_client_secret           = var.fixture_value
+    credential_encryption_key     = var.fixture_value
+    api_token                     = var.fixture_value
     secret_expiration_date        = var.fixture_expiration
   }
   assert {
@@ -128,11 +128,11 @@ run "sensitive_break_glass_hash_can_be_configured" {
     storage_account_id            = "/subscriptions/22222222-2222-4222-8222-222222222222/resourceGroups/rg-cna-dev-weu/providers/Microsoft.Storage/storageAccounts/clientteststorage"
     key_vault_id                  = "/subscriptions/22222222-2222-4222-8222-222222222222/resourceGroups/rg-cna-dev-weu/providers/Microsoft.KeyVault/vaults/clienttestvault"
     managed_identity_principal_id = "44444444-4444-4444-8444-444444444444"
-    database_url                  = "synthetic-test-only"
+    database_url                  = var.fixture_value
     nextauth_secret               = var.fixture_value
-    entra_client_secret           = "synthetic-test-only"
-    credential_encryption_key     = "synthetic-test-only"
-    api_token                     = "synthetic-test-only"
+    entra_client_secret           = var.fixture_value
+    credential_encryption_key     = var.fixture_value
+    api_token                     = var.fixture_value
     secret_expiration_date        = var.fixture_expiration
     local_admin_password          = var.fixture_hash
   }
