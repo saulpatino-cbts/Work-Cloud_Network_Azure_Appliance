@@ -104,8 +104,9 @@ Every operation is a workflow run from the **Actions → Run workflow** dialog, 
    `docker.io/<namespace>/cna:<role>-sha-<7>@sha256:<digest>` — supply one per role (api, worker,
    web, migrator). `230 · Image Update` fills them in automatically; to run `210` by hand, copy them
    from the core's `.deployment-catalog/latest-build.json` (`images.<role>` + `digests.<role>`) or
-   from the `update-available` issue. Floating tags (`*-latest`, `:latest`) and empty values are
-   refused. `prod` applies run under the `hub` environment and wait for its required reviewers.
+   from the `update-available` issue. Floating tags (`*-latest`, `:latest`), tag-only references,
+   and empty values are refused. `prod` applies run under the `hub` environment and wait for its
+   required reviewers.
 
    Before the plan, `210` verifies every image's cosign signature and SLSA provenance against
    `IMAGE_SIGNING_IDENTITY` (the core's `200-build-images` identity); `220` does the same for each

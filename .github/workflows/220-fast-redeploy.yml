@@ -80,14 +80,12 @@ jobs:
 
           # Shared across both appliances (T-701) — keep byte-identical.
           # Validates a container image reference for a role. NS is the Docker Hub
-          # namespace ($DOCKERHUB_NAMESPACE). Refuses floating/empty; accepts a
-          # digest-pinned reference; accepts (with a warning) a tag-only reference;
-          # refuses anything else (wrong namespace, wrong role, extra characters).
+          # namespace ($DOCKERHUB_NAMESPACE). Requires a digest-pinned reference
+          # and refuses empty, floating, tag-only, or malformed references.
           validate_image_ref() {
             local ROLE="$1" REF="$2"
             local NS="${DOCKERHUB_NAMESPACE}"
             local PINNED="^docker\.io/${NS}/cna:${ROLE}-sha-[0-9a-f]{7}@sha256:[0-9a-f]{64}$"
-            local TAG_ONLY="^docker\.io/${NS}/cna:${ROLE}-sha-[0-9a-f]{7}$"
             local HOWTO="get a pinned reference from 230 (Image Update), the core's .deployment-catalog/latest-build.json (images.${ROLE} + digests.${ROLE}), or the update-available issue"
             if [ -z "$REF" ]; then
               echo "::error::${ROLE} image reference is empty (floating references are refused); ${HOWTO}."
@@ -98,10 +96,6 @@ jobs:
               return 1
             fi
             if [[ "$REF" =~ $PINNED ]]; then
-              return 0
-            fi
-            if [[ "$REF" =~ $TAG_ONLY ]]; then
-              echo "::warning::${ROLE} image reference '${REF}' is a tag-only reference; digest not pinned."
               return 0
             fi
             echo "::error::${ROLE} image reference '${REF}' is not a valid pinned reference; ${HOWTO}."

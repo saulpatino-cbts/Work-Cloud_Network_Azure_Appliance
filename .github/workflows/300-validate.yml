@@ -45,6 +45,8 @@ jobs:
           python-version: "3.14"
       - name: Validate documentation model
         run: python3 scripts/validate_documentation_model.py
+      - name: Test image-signature verifier
+        run: bash scripts/ci/test_verify_image_signature.sh
 
   terraform:
     name: Terraform fmt + validate

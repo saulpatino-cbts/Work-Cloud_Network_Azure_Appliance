@@ -6,11 +6,11 @@ in the core repository's `TODO.md`; this file covers deployment, operations and 
 Items requiring external input — an approval, an account, a credential, an access grant — belong
 in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
-**Last reviewed:** 2026-09-15
+**Last reviewed:** 2026-11-03
 
 | Phase | Theme | Items |
 |---|---|---|
-| [Phase 1](#phase-1--bring-up) | Bring-up | T-101 – T-106 |
+| [Phase 1](#phase-1--bring-up) | Bring-up | T-101 – T-107 |
 
 ---
 
@@ -274,3 +274,11 @@ in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG
 - **LOW** `infra/terraform/environments/dev/workload/main.tf::module.ai` (`terraform-azure:dev-environment-live-drift`) — Record drift of the live-but-stale Azure dev environment from the current Terraform definition. The code carries dev-only workarounds pinned to live-state facts — the AI Foundry account name bumped to '-aif2' to sidestep the soft-delete graveyard of the reserved '-aif' name, and the gpt-chat-latest deployment re-declared in Terraform after it was lost with that name bump. Reconcile once the soft-deleted '-aif' account is purged or its retention lapses (revert the account name to 'cna-dev-eus2-aif'). Live reconciliation runs through the 350-drift-dev.yml workflow against the live subscription (human-observed); it is recorded here, not auto-applied. *Still live-gated; `350` now reports a failing check as an issue (T-105) so the drift is not silent. Revert the name to `cna-dev-eus2-aif` only after the soft-deleted account is purged — the workload variable `azure_openai_endpoint` default carries the same suffix and must change with it.*
 - **INFORMATIONAL** `infra/terraform/environments/azure` (`terraform-azure:terraform-validate-sweep`) — Verified compliant: terraform fmt -check is clean (recursive) across the Azure provider modules and environment roots, and terraform init -backend=false + terraform validate succeed for every Azure environment root (infra/terraform/environments/dev/platform, infra/terraform/environments/dev/workload, infra/terraform/environments/prod/platform, infra/terraform/environments/prod/workload) on Terraform v1.15.8. init uses -backend=false so no live azurerm state backend is contacted; no terraform apply is run. Re-run this validate sweep on every evaluation of the Azure Terraform (Requirement 3.2) and guard against a validate regression. *Re-run clean 2026-09-23 on Terraform 1.16.3; `300 · Validate` enforces it on every push.*
 - **INFORMATIONAL** `infra/terraform/providers/azure` (`terraform-azure:best-practice-baseline-verified`) — Verified compliant: tags thread through every module (local.tags in the roots; var.tags plus local.foundry_tags in ai); diagnostic settings cover every app-plane target via the observability module plus platform firewall/NSG/flow-log coverage; SKU tiers are production-appropriate (Front Door Premium, firewall Premium, PostgreSQL GP with geo-redundant backup, Key Vault standard for secret storage); and network exposure is private-endpoint / delegated-subnet based with deny-by-default NSGs. terraform fmt is clean across all eight modules and both environments. Guard against regression. *Still true 2026-09-23; the storage account now also carries deny-by-default network rules, and the platform's `210` guard refuses any plan that destroys the log store, the database, the storage account or the Foundry account.*
+
+### T-107 — Mirror digest-only image verification to the AWS appliance
+
+- **Priority:** High
+- **Origin:** AWS appliance T-114 / core T-723. Core T-723 records observed cosign v3.1.3 DSSE-envelope output on 2026-10-26.
+- **Description:** This Azure-only change requires digest-pinned images and accepts validated direct in-toto SLSA v0.2 statements as well as DSSE envelopes, applying identical subject-digest and builder-prefix checks to both.
+- **Recommended action:** Mirror the verifier, both workflow validators, the regression test, and the README/CHANGELOG behavior update to the AWS appliance; compare the final shared verifier byte for byte with that copy. Confirm with the core that T-723's parser and digest policy matches its signing contract.
+- **Status:** Open — this session is scoped to the Azure appliance; the AWS and core copies were not inspected or changed.
