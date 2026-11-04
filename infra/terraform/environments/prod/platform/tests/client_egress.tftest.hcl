@@ -17,9 +17,13 @@ mock_provider "azapi" {}
 mock_provider "time" {}
 
 variables {
-  tenant_id    = "11111111-1111-4111-8111-111111111111"
-  location     = "westeurope"
-  region_short = "weu"
+  tenant_id          = "11111111-1111-4111-8111-111111111111"
+  location           = "westeurope"
+  region_short       = "weu"
+  fixture_value      = "synthetic-test-only"
+  fixture_expiration = "2030-01-01T00:00:00Z"
+  fixture_hash       = "pbkdf2$sha256$210000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  fixture_name       = "cna-local-admin-password"
 }
 
 run "saas_closes_public_byo_egress" {
@@ -101,11 +105,11 @@ run "break_glass_hash_is_optional" {
     key_vault_id                  = "/subscriptions/22222222-2222-4222-8222-222222222222/resourceGroups/rg-cna-dev-weu/providers/Microsoft.KeyVault/vaults/clienttestvault"
     managed_identity_principal_id = "44444444-4444-4444-8444-444444444444"
     database_url                  = "synthetic-test-only"
-    nextauth_secret               = "synthetic-test-only"
+    nextauth_secret               = var.fixture_value
     entra_client_secret           = "synthetic-test-only"
     credential_encryption_key     = "synthetic-test-only"
     api_token                     = "synthetic-test-only"
-    secret_expiration_date        = "2030-01-01T00:00:00Z"
+    secret_expiration_date        = var.fixture_expiration
   }
   assert {
     condition     = length(azurerm_key_vault_secret.local_admin_password) == 0 && output.local_admin_password_secret_name == null
@@ -125,15 +129,15 @@ run "sensitive_break_glass_hash_can_be_configured" {
     key_vault_id                  = "/subscriptions/22222222-2222-4222-8222-222222222222/resourceGroups/rg-cna-dev-weu/providers/Microsoft.KeyVault/vaults/clienttestvault"
     managed_identity_principal_id = "44444444-4444-4444-8444-444444444444"
     database_url                  = "synthetic-test-only"
-    nextauth_secret               = "synthetic-test-only"
+    nextauth_secret               = var.fixture_value
     entra_client_secret           = "synthetic-test-only"
     credential_encryption_key     = "synthetic-test-only"
     api_token                     = "synthetic-test-only"
-    secret_expiration_date        = "2030-01-01T00:00:00Z"
-    local_admin_password          = "pbkdf2$sha256$210000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    secret_expiration_date        = var.fixture_expiration
+    local_admin_password          = var.fixture_hash
   }
   assert {
-    condition     = length(azurerm_key_vault_secret.local_admin_password) == 1 && output.local_admin_password_secret_name == "cna-local-admin-password"
+    condition     = length(azurerm_key_vault_secret.local_admin_password) == 1 && output.local_admin_password_secret_name == var.fixture_name
     error_message = "A configured sensitive hash must plan without leaking its value or producing a sensitive count."
   }
 }
