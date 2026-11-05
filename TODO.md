@@ -6,7 +6,7 @@ in the core repository's `TODO.md`; this file covers deployment, operations and 
 Items requiring external input — an approval, an account, a credential, an access grant — belong
 in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
-**Last reviewed:** 2026-11-04
+**Last reviewed:** 2026-11-05
 
 | Phase | Theme | Items |
 |---|---|---|

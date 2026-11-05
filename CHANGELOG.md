@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Workflow regression tests for duplicate keys and unscoped GitHub App tokens** (mirror of AWS
+  `TODO.md` → T-116). `scripts/ci/test_workflow_regressions.py` now fails when any workflow file repeats
+  a mapping key (GitHub rejects the whole file; this invalidated the AWS `100-validate-prereqs`
+  workflow on 2026-11-04) and when a `create-github-app-token` step has no `repositories:`. Both pass
+  on the current workflows. `300-validate` installs `pyyaml==6.0.3` for the suite.
+
 ### Changed
 - **Backlog items follow the core's W12 workflow.** `CLAUDE.md` names the loop every change goes through (spec → specialist implementation → independent adversarial verification → the checks listed there → docs → draft PR, humans merge) and this repository's definition of done; the workflow itself lives in the core's `.claude/orchestration/workflows.md`.
 - **Images are deployed by digest** (core `TODO.md` → T-701; v1.0 review findings RELEASE-001 / IMG-012). `230-image-update` now requires the core manifest's `digests{}` and composes the pinned reference `docker.io/<ns>/cna:<role>-sha-<7>@sha256:<digest>` for the api, worker, web and migrator images — the tag stays for people and for the web tier's image-update check, the digest is what the platform pulls — and passes all four to `210` (new `migrator_image` input). A manifest without `digests{}` fails the update with a message to rebuild the core first. `210-deploy` refuses empty, floating (`*-latest`), and tag-only references, drops the `migrator-latest` default and the never-working "resolve from the appliance's own build manifest" step, validates every image input with one shared `validate_image_ref` function, and records the pinned references in the release catalog. Rollback takes `previous_migrator_image` through `workflow_call`; a dispatch rollback resolves the migrator from the catalog record that matches `previous_api_image` (GitHub caps `workflow_dispatch` at ten inputs). `220-fast-redeploy` applies the same validation; `350`/`360` no longer fall back to floating tags when the catalog has no image (they fail instead); `100-validate-prereqs` checks Docker Hub pull access with an authenticated tags listing rather than by pulling `*-latest`. Terraform image variables lose their `example-namespace/*-latest` module defaults and document the pinned form. Shared change — `230`, `resolve_rollback_target.py`, `validate_image_ref` and the `update-available` issue template are byte-identical in the sibling appliance.
