@@ -98,7 +98,7 @@ container vulnerability result is established by this document.
 application, DNS zone, GitHub appliance repository, state backend, runtime identities and secrets.
 The image publisher can remain a different organization. Set `CORE_OWNER=<upstream-owner>`,
 `CORE_REPO=<upstream-core-repository>`, `DOCKERHUB_NAMESPACE=<upstream-image-namespace>` and
-`IMAGE_SIGNING_IDENTITY=https://github.com/<upstream-owner>/<upstream-core-repository>/.github/workflows/200-build-images.yml@refs/heads/<signing-branch>`.
+`IMAGE_SIGNING_IDENTITY=https://github.com/<upstream-owner>/<upstream-core-repository>/.github/workflows/200-build-images.yml@refs/heads/main`.
 Use the **actual producer**, not the client's repo name, for signature trust. `230` reads that
 upstream owner's repository; `210` limits its variable-management App token to the client's
 appliance repository. Never weaken signature/digest checks to accommodate an unsigned mirror:
@@ -157,6 +157,19 @@ and configuration. That identity should have only read permissions and an exact 
 OIDC subject, not production deploy rights. `100` cannot inspect environment-scoped values;
 `210` validates the actual selected environment before cloud login.
 
+The current `100` also requires repository-scoped copies of `CNA_POSTGRES_ADMIN_PASSWORD`,
+`CNA_ENTRA_CLIENT_SECRET`, `CNA_NEXTAUTH_SECRET` and `CNA_CREDENTIAL_ENCRYPTION_KEY`.
+Repository scope makes these runtime secrets available to other workflows in this repository;
+environment-only storage will not satisfy `100`. If that exposure is not acceptable, stop and
+obtain an approved environment-scoped preflight design rather than copying production secrets.
+No secret scope or protection is changed by this checklist.
+
+The `230` updater's `detect` job also has no environment. Set `CORE_OWNER`, `CORE_REPO`,
+`IMAGE_SIGNING_IDENTITY` and `DOCKERHUB_NAMESPACE` as repository variables, separately from
+the target environment's deployment configuration. Scheduled/manual manifest polling needs
+`GH_APP_ID` and `GH_APP_PRIVATE_KEY` at repository scope with read access to that upstream
+repository. Dispatch skips polling but still needs those repository variables.
+
 | Input | Client value / provisioning rule |
 |---|---|
 | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` (Secrets) | Client-owned nonzero UUIDs, never the all-zero example |
@@ -202,7 +215,7 @@ its separately approved resource-group deletion path. Neither guard proves live 
 For a client hostname, the workload wires that host into Front Door using a managed certificate.
 The client DNS owner must validate the domain and point it to the resulting Front Door endpoint;
 certificate/domain activation is a live prerequisite, not proven by a successful Terraform
-validate. Register the exact `CNA_NEXTAUTH_URL/api/auth/callback/azure-ad` redirect with the
+validate. Register the exact `CNA_NEXTAUTH_URL/api/auth/callback/microsoft-entra-id` redirect with the
 client Entra app. A real, previously provisioned `*.azurefd.net` origin can instead be supplied
 without custom-domain creation. Do not use a fictitious hostname to get past the guard.
 

@@ -59,6 +59,13 @@ class DestructivePlanTests(unittest.TestCase):
     def test_address_only_configuration(self):
         self.assertEqual(self.run_guard(PROJECTS[0], "azapi_resource", ["delete"], types="").returncode, 1)
 
+    def test_quoted_instance_keys_fail_closed(self):
+        for address in ('module.data.azapi_resource.this["east,west"]', 'module.data.azapi_resource.this["east"]'):
+            with self.subTest(address=address):
+                result = self.run_guard(address, "azapi_resource", ["delete"], addresses=(address,))
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("does not support quoted instance keys", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -53,6 +53,8 @@ jobs:
         run: bash scripts/ci/test_runner_firewall_window.sh
       - name: Destructive plan guard regression tests
         run: python3 scripts/ci/test_refuse_destructive_plan.py
+      - name: Workflow failure-path regression tests
+        run: python3 scripts/ci/test_workflow_regressions.py
 
   terraform:
     name: Terraform fmt + validate

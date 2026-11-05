@@ -5,14 +5,17 @@ set -euo pipefail
 MODE="${1:?Usage: validate_client_config.sh bootstrap|deploy|refresh|teardown|drift}"
 fail() { echo "::error::Client configuration: $1" >&2; exit 1; }
 required() {
-  local name="$1" value="${!1:-}" lower
+  local name="$1" value="${!1:-}" lower secret="${2:-false}"
   lower="${value,,}"
   [[ -n "${value//[[:space:]]/}" ]] || fail "$name is required."
   case "$lower" in
-    none|null|changeme|change-me|todo|*placeholder*|*replace_me*|*replace-me*|*example.com*|*example.invalid*|*'<'*|*'>'*)
+    none|null|changeme|change-me|todo|*placeholder*|*replace_me*|*replace-me*|*example.com*|*example.invalid*)
       fail "$name contains an unfilled placeholder."
       ;;
   esac
+  if [[ "$secret" != true && ( "$value" == *'<'* || "$value" == *'>'* ) ]]; then
+    fail "$name contains an unfilled placeholder."
+  fi
 }
 uuid() {
   required "$1"
@@ -43,7 +46,7 @@ fi
 if [[ "$MODE" == refresh || "$MODE" == deploy ]]; then
   required DOCKERHUB_NAMESPACE
   [[ "$DOCKERHUB_NAMESPACE" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || fail "DOCKERHUB_NAMESPACE has an invalid shape."
-  required DOCKERHUB_TOKEN
+  required DOCKERHUB_TOKEN true
   required IMAGE_SIGNING_IDENTITY
   [[ "$IMAGE_SIGNING_IDENTITY" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/200-build-images\.yml@refs/heads/[A-Za-z0-9_./-]+$ ]] || fail "IMAGE_SIGNING_IDENTITY must identify the actual upstream signing workflow."
 fi
@@ -69,7 +72,8 @@ if [[ "$MODE" == deploy ]]; then
   required CNA_NEXTAUTH_URL
   [[ "$CNA_NEXTAUTH_URL" =~ ^https://([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$ &&
      "$CNA_NEXTAUTH_URL" != *localhost* ]] || fail "CNA_NEXTAUTH_URL must be a client HTTPS origin without a path, query or credentials."
-  for name in CNA_POSTGRES_ADMIN_PASSWORD CNA_ENTRA_CLIENT_SECRET CNA_NEXTAUTH_SECRET CNA_CREDENTIAL_ENCRYPTION_KEY GH_APP_ID GH_APP_PRIVATE_KEY; do required "$name"; done
+  required GH_APP_ID
+  for name in CNA_POSTGRES_ADMIN_PASSWORD CNA_ENTRA_CLIENT_SECRET CNA_NEXTAUTH_SECRET CNA_CREDENTIAL_ENCRYPTION_KEY GH_APP_PRIVATE_KEY; do required "$name" true; done
   key_bytes="$(printf '%s' "$CNA_CREDENTIAL_ENCRYPTION_KEY" | base64 -d 2>/dev/null | wc -c)" || fail "CNA_CREDENTIAL_ENCRYPTION_KEY must be base64."
   [[ "$key_bytes" -eq 32 ]] || fail "CNA_CREDENTIAL_ENCRYPTION_KEY must decode to 32 bytes."
   if [[ -n "${LOCAL_ADMIN_PASSWORD:-}" ]]; then

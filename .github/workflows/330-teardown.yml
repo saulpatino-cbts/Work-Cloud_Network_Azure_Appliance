@@ -289,14 +289,18 @@ jobs:
             sleep 30
           done
 
+          if ! DELETED_ACCOUNTS="$(az cognitiveservices account list-deleted \
+            --query "[?contains(id, '/resourceGroups/${RG}/')].[name,location]" -o tsv)"; then
+            echo "::error::Unable to list soft-deleted Cognitive Services accounts; refusing to report purge success."
+            exit 1
+          fi
           FOUND=0
           while IFS=$'\t' read -r NAME LOC; do
             [[ -z "$NAME" ]] && continue
             FOUND=1
             echo "Purging soft-deleted Cognitive Services account: $NAME ($LOC)"
             az cognitiveservices account purge -l "$LOC" -g "$RG" -n "$NAME" --only-show-errors
-          done < <(az cognitiveservices account list-deleted \
-            --query "[?contains(id, '/resourceGroups/${RG}/')].[name,location]" -o tsv)
+          done <<< "$DELETED_ACCOUNTS"
 
           if [[ "$FOUND" == "0" ]]; then
             echo "No soft-deleted Cognitive Services accounts found for $RG."
