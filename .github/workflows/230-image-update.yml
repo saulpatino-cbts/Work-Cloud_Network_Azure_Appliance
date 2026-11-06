@@ -5,7 +5,7 @@ name: "230 · Image Update"
 # Fast path: the core's 200-build-images.yml sends a repository_dispatch
 # (`cna-image-published`, payload = latest-build.json) after every build.
 # Safety net: every six hours this workflow fetches the same manifest from the
-# core repository (vars.CORE_REPO) through the GitHub App, so a missed
+# core repository (vars.CORE_OWNER / vars.CORE_REPO) through the GitHub App, so a missed
 # dispatch — or an image set built anywhere else that updates the manifest —
 # is still picked up.
 #
@@ -69,11 +69,16 @@ jobs:
           IMAGE_SIGNING_IDENTITY: ${{ vars.IMAGE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
-          if [[ ! "$CORE_OWNER" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ||
+          # [[ =~ ]] matches the whole value; grep would match one line of a multi-line value.
+          if [[ ! "$CORE_OWNER" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ||
                 ! "$CORE_REPO" =~ ^[A-Za-z0-9_.-]+$ ||
-                "$CORE_REPO" == "." || "$CORE_REPO" == ".." ||
-                "$IMAGE_SIGNING_IDENTITY" != "https://github.com/${CORE_OWNER}/${CORE_REPO}/.github/workflows/200-build-images.yml@refs/heads/"* ]]; then
-            echo "::error::Set CORE_OWNER/CORE_REPO to the actual upstream producer and IMAGE_SIGNING_IDENTITY to its trusted signing workflow, not the client deployment repository."
+                "$CORE_REPO" == "." || "$CORE_REPO" == ".." ]]; then
+            echo "::error::Set CORE_OWNER/CORE_REPO to the actual upstream producer, not the client deployment repository."
+            exit 1
+          fi
+          EXPECTED_IDENTITY="https://github.com/${CORE_OWNER}/${CORE_REPO}/.github/workflows/200-build-images.yml@refs/heads/main"
+          if [[ "$IMAGE_SIGNING_IDENTITY" != "$EXPECTED_IDENTITY" ]]; then
+            echo "::error::IMAGE_SIGNING_IDENTITY must be the trusted signing workflow of the upstream producer: ${EXPECTED_IDENTITY}"
             exit 1
           fi
 
@@ -99,17 +104,13 @@ jobs:
         if: github.event_name != 'repository_dispatch'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          CORE_OWNER: ${{ vars.CORE_OWNER }}
           CORE_REPO: ${{ vars.CORE_REPO }}
-          OWNER: ${{ vars.CORE_OWNER }}
         run: |
           set -euo pipefail
-          if [ -z "$CORE_REPO" ]; then
-            echo "::error::CORE_REPO variable is required (the core repository name under ${OWNER})."
-            exit 1
-          fi
           curl -sSf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${OWNER}/${CORE_REPO}/contents/.deployment-catalog/latest-build.json?ref=main" \
+            "https://api.github.com/repos/${CORE_OWNER}/${CORE_REPO}/contents/.deployment-catalog/latest-build.json?ref=main" \
             -o /tmp/latest-build.json
           echo "source=poll" >> "$GITHUB_ENV"
 
@@ -121,7 +122,7 @@ jobs:
       - name: Compare against the release catalog
         id: compare
         env:
-          OWNER: ${{ vars.CORE_OWNER }}
+          CORE_OWNER: ${{ vars.CORE_OWNER }}
           CORE_REPO: ${{ vars.CORE_REPO }}
           DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
           FORCE: ${{ inputs.force }}
@@ -188,7 +189,7 @@ jobs:
             echo "worker_image=${WORKER_IMAGE}"
             echo "web_image=${WEB_IMAGE}"
             echo "migrator_image=${MIGRATOR_IMAGE}"
-            echo "source_repo=${OWNER}/${CORE_REPO:-unknown}"
+            echo "source_repo=${CORE_OWNER}/${CORE_REPO:-unknown}"
             echo "source_run_id=$(jq -r '.run_id // ""' "$M")"
           } >> "$GITHUB_OUTPUT"
 

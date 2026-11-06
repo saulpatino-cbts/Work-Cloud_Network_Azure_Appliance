@@ -124,6 +124,58 @@ class WorkflowRegressionTests(unittest.TestCase):
         self.assertEqual(duplicate_keys("env:\n  A: 1\n  B: 2\n  A: 3\n"), [("A", 4)])
         self.assertEqual(duplicate_keys("env:\n  A: 1\n  B: 2\n"), [])
 
+    def test_upstream_source_validation_accepts_only_the_core_signing_identity(self):
+        # 230 runs this before any App token is requested: a wrong owner/repo/identity
+        # variable must stop the run, not reach the token request or a deploy.
+        workflow = yaml.safe_load((WORKFLOWS / "230-image-update.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["detect"]["steps"]
+        names = [step.get("name", "") for step in steps]
+        index = next(n for n, name in enumerate(names) if name.startswith("Validate upstream source"))
+        token = next(n for n, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/create-github-app-token@"))
+        self.assertLess(index, token, "validation must run before the App token is requested")
+        self.assertNotIn("if", steps[index], "validation must run on every trigger, including repository_dispatch")
+        script = steps[index]["run"]
+
+        def identity(owner, repo):
+            return f"https://github.com/{owner}/{repo}/.github/workflows/200-build-images.yml@refs/heads/main"
+
+        good = identity("acme-core", "cna-core")
+        owner39 = "a" * 39
+        cases = (
+            ("acme-core", "cna-core", good, 0),
+            ("a", "cna-core", identity("a", "cna-core"), 0),
+            (owner39, "cna-core", identity(owner39, "cna-core"), 0),
+            (owner39 + "a", "cna-core", identity(owner39 + "a", "cna-core"), 1),
+            ("acme-core", "cna-core", good.replace("@refs/heads/main", "@refs/heads/dev"), 1),
+            ("acme-core", "cna-core", good.replace("200-build", "999-build"), 1),
+            ("acme-core", "cna-core", good.replace("acme-core/cna-core", "other/cna-core"), 1),
+            ("acme-core", "cna-core", "", 1),
+            ("", "cna-core", good, 1),
+            ("acme-core", "", good, 1),
+            ("-acme", "cna-core", good, 1),
+            ("acme-", "cna-core", good, 1),
+            ("acme-core", "..", identity("acme-core", ".."), 1),
+            ("acme-core", ".", identity("acme-core", "."), 1),
+            ("acme-core", "cna core", identity("acme-core", "cna core"), 1),
+            ("ok\nzz", "cna-core", identity("ok\nzz", "cna-core"), 1),
+            ("acme-core", "r\nbad repo", identity("acme-core", "r\nbad repo"), 1),
+        )
+        for owner, repo, ident, expected in cases:
+            with self.subTest(owner=owner, repo=repo, identity=ident):
+                result = subprocess.run(
+                    ["bash", "-e", "-o", "pipefail", "-c", script],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    env={
+                        **os.environ,
+                        "CORE_OWNER": owner,
+                        "CORE_REPO": repo,
+                        "IMAGE_SIGNING_IDENTITY": ident,
+                    },
+                )
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
     def test_app_tokens_are_scoped_to_one_repository(self):
         # An unscoped App token spans every repository the App is installed on.
         # 230 deliberately targets the upstream core repository; every other
