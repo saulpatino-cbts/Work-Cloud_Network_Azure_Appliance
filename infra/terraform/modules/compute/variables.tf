@@ -3,11 +3,6 @@ variable "api_image" {
   type        = string
 }
 
-variable "worker_image" {
-  description = "Container image for CNA worker, pinned reference docker.io/<namespace>/cna:worker-sha-<7>@sha256:<digest>"
-  type        = string
-}
-
 variable "web_image" {
   description = "Container image for CNA Web (Next.js 15), pinned reference docker.io/<namespace>/cna:web-sha-<7>@sha256:<digest>"
   type        = string
@@ -103,13 +98,6 @@ variable "api_env_vars" {
   nullable    = false
 }
 
-variable "worker_env_vars" {
-  description = "Plain environment variables for the worker container app"
-  type        = map(string)
-  default     = {}
-  nullable    = false
-}
-
 variable "web_env_vars" {
   description = "Plain environment variables for the web container app"
   type        = map(string)
@@ -119,13 +107,6 @@ variable "web_env_vars" {
 
 variable "api_secret_env_vars" {
   description = "Secret-backed env vars for the API Container App. Map key is env var name, value is secret name."
-  type        = map(string)
-  default     = {}
-  nullable    = false
-}
-
-variable "worker_secret_env_vars" {
-  description = "Secret-backed env vars for the worker Container App. Map key is env var name, value is secret name."
   type        = map(string)
   default     = {}
   nullable    = false

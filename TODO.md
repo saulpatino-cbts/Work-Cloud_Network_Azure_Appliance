@@ -6,11 +6,11 @@ in the core repository's `TODO.md`; this file covers deployment, operations and 
 Items requiring external input — an approval, an account, a credential, an access grant — belong
 in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
-**Last reviewed:** 2026-11-06
+**Last reviewed:** 2026-11-13
 
 | Phase | Theme | Items |
 |---|---|---|
-| [Phase 1](#phase-1--bring-up) | Bring-up | T-101 – T-108 |
+| [Phase 1](#phase-1--bring-up) | Bring-up | T-101 – T-110 |
 
 ---
 
@@ -50,6 +50,12 @@ in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG
   would delete or replace the Foundry account or its model deployment (and the storage account),
   on top of the T-103 log-store and database guard, so a missing `moved` block can no longer reach
   `apply`. Close this item when the first `210` dev run after these merges shows the plan above.
+  **Amended by T-109 (2026-11-13):** the worker is retired, so `ca-worker` no longer takes the
+  env updates above and its `moved` block is gone (five remain). The same plan now also destroys
+  `module.compute.azurerm_container_app.worker`,
+  `azurerm_role_assignment.worker_storage_blob_data_contributor` and, in `saas`, the worker's
+  Cognitive Services User assignment (under its old unindexed address if this state predates the
+  `count` change). Those destroys are expected; any other `destroy` is still a finding.
 
 ### T-102 — Add this repository to the shared project board
 
@@ -294,7 +300,7 @@ in [`REVIEW.md`](REVIEW.md), not here. Completed work is recorded in [`CHANGELOG
 - **Upgrade prerequisites:** Set `AZURE_LOCATION`, `FOUNDRY_LOCATION` for `saas`, `CORE_OWNER`, the actual client domain, and existing `FOUNDRY_ACCOUNT_NAME`/`FOUNDRY_PROJECT_NAME` before planning; configure `CNA_BYO_AI_PROVIDERS` and matching `CNA_AI_ENGINE_DEFAULT` for `byo-api`. Approve the required `hub` OIDC/role/configuration transition before any production run. No live plan/state/settings were changed here.
 - **Mirror action:** In `Work-Cloud_Network_AWS_Appliance`, mirror the client config validation contract/tests, protected prod jobs and per-environment concurrency, `CORE_OWNER`/upstream trust distinction, repository-scoped App tokens, count-only plan summaries and client-install instructions, adapting only cloud-specific target validation and egress. Keep the existing signature verifier and its regression test byte-identical; this assignment does not change them. The core owns credential/BYO runtime behavior, new image scans/remediation, signing producer evidence and local-admin revocation.
 - **Deferred external work:** The coordinator must record the shared change in both sibling/core handover reports, the core findings register and CNA Total Workboard; external writes and changes outside Azure are not authorized in this session. No mirror or live protection is implied by these local edits.
-- **Cross-repo rollout gate:** Azure injects validated JSON `CNA_BYO_AI_PROVIDERS` into both API/web (also worker), requires the default engine in that list, and omits it in SaaS. [saulpatino-cbts/Work-Cloud_Network_Core#102](https://github.com/saulpatino-cbts/Work-Cloud_Network_Core/pull/102) and [saulpatino-cbts/Work-Cloud_Network_AWS_Appliance#38](https://github.com/saulpatino-cbts/Work-Cloud_Network_AWS_Appliance/pull/38) are verified merged. Azure signed-image consumption, runtime acceptance, network traversal and provider denial remain unverified. Existing BYO installations must configure the list/default engine and run `210` before adopting the fail-closed runtime; `220` cannot add it.
+- **Cross-repo rollout gate:** Azure injects validated JSON `CNA_BYO_AI_PROVIDERS` into both API/web, requires the default engine in that list, and omits it in SaaS. [saulpatino-cbts/Work-Cloud_Network_Core#102](https://github.com/saulpatino-cbts/Work-Cloud_Network_Core/pull/102) and [saulpatino-cbts/Work-Cloud_Network_AWS_Appliance#38](https://github.com/saulpatino-cbts/Work-Cloud_Network_AWS_Appliance/pull/38) are verified merged. Azure signed-image consumption, runtime acceptance, network traversal and provider denial remain unverified. Existing BYO installations must configure the list/default engine and run `210` before adopting the fail-closed runtime; `220` cannot add it.
 - **Owner gates:** R-001/R-002/R-006/R-008/R-010/R-011 remain open for security acceptance, actual GitHub protections/OIDC grants, historical artifact deletion and coordinated rotation, break-glass policy and client rollout. Fresh image-scan evidence is supplied by the core, not by this appliance.
 - **Review remediation:** Existing SaaS catalog records require explicit Foundry account/project names; live account discovery also refuses missing or mismatched upgrade names (historical dev account `cna-dev-eus2-aif2`), while greenfield derivation remains. Runner windows journal the exact IP in `CnaRunnerIp` resource tags before opening/at creation, retry+verify cleanup, retain journals and fail on removal errors, and reconcile interrupted windows on subsequent deploy/drift runs. Hard termination has no guaranteed expiry: client alerting, prompt approved reconciliation and live recovery verification remain required. Unjournaled historical rules need owner inventory. Runtime effective RBAC and direct-origin denial remain NOT VERIFIED.
 - **Owner branch gate:** Coordinator read-only checks found default branch `main`, branch protection GET 404 "Branch not protected", and an empty repository ruleset list. Organization rulesets/permissions could not be verified (404 / admin:org scope required); do not infer absent inherited controls or direct-push permission. Owner must verify and configure effective protections before approval.
@@ -326,3 +332,50 @@ The coordinator's read-only board check found no T-107/T-108 or new mirror-chang
 Core main's recursive tree lacked the named findings-register/change-report paths and the
 direct register lookup returned 404. These are reported evidence gaps, not completed handovers
 or permission for this session to create board/register entries.
+
+### T-109 — Retire the worker: apply the removal in dev and prod (core R-016 / T-725)
+
+- **Priority:** High — `230-image-update` fails at its manifest guard on every run until the
+  change below merges, so no image update reaches this appliance.
+- **Description:** The core retired the `cna-worker` image (core `REVIEW.md` → R-016, merged
+  2026-11-12); `latest-build.json` no longer carries `images.worker` / `digests.worker`. This
+  repository's change (see `CHANGELOG.md` → Unreleased → Removed) drops the worker Container App,
+  its two role assignments, the worker inputs of `210` and `220`, the worker drift pair of
+  `350`/`360` and, byte-identical with the AWS appliance, the worker parts of `230`, the
+  `update-available` template and `resolve_rollback_target.py`.
+  Nothing it destroys is a protected type, so `refuse_destructive_plan.py` passes. Until each
+  environment's `210` run, `350`/`360` (daily cron) will open drift issues for the pending worker
+  destroys; that is expected.
+- **Recommended action (human):**
+  1. Before merging, re-check `AUTO_UPDATE_DEV` (it was `False` on 2026-11-11, which keeps `230`
+     from running `210` for dev). If it is open, the owner decides whether to close it first.
+  2. After the merge, review the dev plan and run `210-deploy` for `dev` by hand. Expected
+     destroys: `module.compute.azurerm_container_app.worker`,
+     `azurerm_role_assignment.worker_storage_blob_data_contributor` and, in `saas`,
+     `azurerm_role_assignment.worker_foundry_user[0]` (or its unindexed address on a state that
+     predates the `count` change; see T-101). Anything else destroyed is a finding.
+  3. Run `210-deploy` for `prod` after reviewing its plan; the apply waits under the `hub`
+     environment (required reviewer configured by the owner; see R-002).
+  4. Then the core follow-up: a human deletes the `worker-*` tags on Docker Hub (core
+     `TODO.md` → T-725 step 9).
+- **Status:** Code change prepared 2026-11-13 on `work/retire-cna-worker`, not merged; no plan or
+  apply has run.
+
+### T-110 — A rollback from the `210` dialog cannot reach the catalog resolver (both appliances)
+
+- **Priority:** Medium
+- **Origin:** Pre-existing defect found while verifying T-109 (2026-11-13); shared with
+  `Work-Cloud_Network_AWS_Appliance`.
+- **Description:** The NOTE at the `210-deploy.yml` inputs says a human rollback from the dialog
+  leaves the `previous_*_image` fields empty and `resolve_rollback_target.py` recovers the images
+  from the release catalog. But the policy-gates job's "Resolve Docker Hub image defaults" step
+  exits 1 when `previous_api_image` or `previous_web_image` is empty, before the plan job's
+  resolver step runs, so the resolver is unreachable from the dialog: a dispatch rollback works
+  only when the operator pastes the references by hand.
+- **Recommended action:** In both appliances in the same change set, either resolve from the
+  catalog in policy-gates too (run the resolver there when the fields are empty, then validate
+  its output) or correct the NOTE and the README rollback line to say the references are
+  required. Add a regression test that runs the policy-gates rollback branch with empty inputs.
+  The workflow inputs are a shared contract; keep them identical in both appliances.
+- **Status:** Open; behaviour unchanged. Only the stale "(ten-input cap)" comments were reworded
+  in T-109.

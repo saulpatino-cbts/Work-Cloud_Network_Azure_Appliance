@@ -15,9 +15,8 @@ locals {
     var.container_app_environment_infrastructure_resource_group_name,
     "rg-${var.name_prefix}-cae-managed"
   )
-  api_app_name    = "${var.name_prefix}-ca-api"
-  worker_app_name = "${var.name_prefix}-ca-worker"
-  web_app_name    = "${var.name_prefix}-ca-web"
+  api_app_name = "${var.name_prefix}-ca-api"
+  web_app_name = "${var.name_prefix}-ca-web"
 
   # Private non-ACR registries such as Docker Hub use username + token auth.
   # If credentials are omitted, the registry block falls back to managed identity for ACR.
@@ -25,13 +24,6 @@ locals {
 
   api_plain_env_vars = [
     for name, value in var.api_env_vars : {
-      name  = name
-      value = value
-    }
-  ]
-
-  worker_plain_env_vars = [
-    for name, value in var.worker_env_vars : {
       name  = name
       value = value
     }
@@ -46,13 +38,6 @@ locals {
 
   api_secret_env_vars = [
     for name, secret_name in var.api_secret_env_vars : {
-      name        = name
-      secret_name = secret_name
-    }
-  ]
-
-  worker_secret_env_vars = [
-    for name, secret_name in var.worker_secret_env_vars : {
       name        = name
       secret_name = secret_name
     }

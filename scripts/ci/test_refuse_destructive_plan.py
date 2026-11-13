@@ -53,6 +53,30 @@ class DestructivePlanTests(unittest.TestCase):
     def test_type_protection_preserved(self):
         self.assertEqual(self.run_guard("module.storage.azurerm_storage_account.this", "azurerm_storage_account", ["delete"]).returncode, 1)
 
+    def test_protected_type_forget_allowed(self):
+        # A `removed { lifecycle { destroy = false } }` block plans as "forget": the
+        # object leaves state and survives, so the guard must let it through.
+        for address, resource_type in (
+            ("module.storage.azurerm_storage_account.this", "azurerm_storage_account"),
+            (PROJECTS[0], "azapi_resource"),
+        ):
+            with self.subTest(address=address):
+                result = self.run_guard(address, resource_type, ["forget"])
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_retired_worker_destroys_allowed(self):
+        # Core R-016: the plan that retires cna-worker destroys its Container App
+        # and role assignments; none is a protected type, so the apply proceeds.
+        types = "azurerm_log_analytics_workspace,azurerm_postgresql_flexible_server,azurerm_storage_account,azurerm_cognitive_account,azurerm_cognitive_deployment"
+        for address, resource_type in (
+            ("module.compute.azurerm_container_app.worker", "azurerm_container_app"),
+            ("azurerm_role_assignment.worker_storage_blob_data_contributor", "azurerm_role_assignment"),
+            ("azurerm_role_assignment.worker_foundry_user[0]", "azurerm_role_assignment"),
+        ):
+            with self.subTest(address=address):
+                result = self.run_guard(address, resource_type, ["delete"], types=types)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_empty_configuration_refused(self):
         self.assertEqual(self.run_guard("anything", "anything", ["delete"], types="", addresses=()).returncode, 1)
 

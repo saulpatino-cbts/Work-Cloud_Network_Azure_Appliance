@@ -65,11 +65,6 @@ variable "container_app_environment_id" {
   type        = string
 }
 
-variable "worker_container_app_id" {
-  description = "Worker Container App resource ID"
-  type        = string
-}
-
 variable "frontdoor_custom_domain_host_name" {
   description = "Optional custom domain hostname for Azure Front Door"
   type        = string

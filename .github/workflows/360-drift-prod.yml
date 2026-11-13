@@ -278,9 +278,8 @@ jobs:
           # actually recorded; there is no floating-tag fallback (T-701). A missing
           # image means drift cannot be measured, so fail loudly.
           API_IMAGE=$(catalog_value '.api_image' "")
-          WORKER_IMAGE=$(catalog_value '.worker_image' "")
           WEB_IMAGE=$(catalog_value '.web_image' "")
-          for pair in "api:${API_IMAGE}" "worker:${WORKER_IMAGE}" "web:${WEB_IMAGE}"; do
+          for pair in "api:${API_IMAGE}" "web:${WEB_IMAGE}"; do
             ROLE="${pair%%:*}"
             VAL="${pair#*:}"
             if [ -z "$VAL" ]; then
@@ -305,7 +304,6 @@ jobs:
 
           terraform plan -detailed-exitcode \
             -var="api_image=${API_IMAGE}" \
-            -var="worker_image=${WORKER_IMAGE}" \
             -var="web_image=${WEB_IMAGE}" \
             -var="entra_client_id=${{ vars.CNA_ENTRA_CLIENT_ID }}" \
             -var="nextauth_url=${{ vars.CNA_NEXTAUTH_URL }}" \

@@ -75,7 +75,6 @@ module "compute" {
   location                             = data.azurerm_resource_group.this.location
   name_prefix                          = local.name_prefix
   api_image                            = var.api_image
-  worker_image                         = var.worker_image
   web_image                            = var.web_image
   container_apps_internal_only         = false
   container_apps_public_network_access = "Disabled"
@@ -97,11 +96,11 @@ module "compute" {
   # Foundry recommendation agent (portal-configured: MCP tools + instructions).
   # Empty values keep the agent transport off; RecommendationEngine then uses the
   # direct MCP clients and the offline library.
-  # AZURE_OPENAI_* must reach the API and worker too, not just web: cna-api's
+  # AZURE_OPENAI_* must reach the API too, not just web: cna-api's
   # GroundedChatAgent raises ChatConfigError (→ 503 on /chat, all analysis
   # types fail) when AZURE_OPENAI_ENDPOINT is absent from its own environment.
   #
-  # AZURE_CLIENT_ID: all three container apps carry BOTH a system-assigned and
+  # AZURE_CLIENT_ID: both container apps carry BOTH a system-assigned and
   # the shared user-assigned identity (key_vault_reference_identity_id above).
   # DefaultAzureCredential's ManagedIdentityCredential defaults to "system-
   # assigned" only when unambiguous; with two identities attached, Container
@@ -114,15 +113,6 @@ module "compute" {
   # (local.ai_mode_env_vars) are merged in from locals.tf so the two modes
   # differ only by those keys.
   api_env_vars = merge(
-    {
-      CNA_STORAGE_ACCOUNT_NAME = module.storage.storage_account_name
-      AZURE_CLIENT_ID          = module.identity.managed_identity_client_id
-    },
-    local.azure_ai_env_vars,
-    local.ai_mode_env_vars,
-  )
-
-  worker_env_vars = merge(
     {
       CNA_STORAGE_ACCOUNT_NAME = module.storage.storage_account_name
       AZURE_CLIENT_ID          = module.identity.managed_identity_client_id
@@ -244,11 +234,6 @@ moved {
   to   = azurerm_role_assignment.uai_foundry_user[0]
 }
 
-moved {
-  from = azurerm_role_assignment.worker_foundry_user
-  to   = azurerm_role_assignment.worker_foundry_user[0]
-}
-
 
 # Bearer token for the internal cna-api (SEC-001/ARCH-002). 48 chars, no special
 # characters so it is safe in an HTTP Authorization header. Generated here,
@@ -279,9 +264,9 @@ module "runtime" {
 # DefaultAzureCredential. All required role assignments are declared here so
 # Terraform owns the full identity surface — no manual az role assignment calls.
 
-# Storage: web uploads deliverables; api + worker read/write raw artifacts.
+# Storage: web uploads deliverables; api reads/writes raw artifacts.
 # The user-assigned identity needs this too: AZURE_CLIENT_ID pins
-# DefaultAzureCredential to it in all three apps, so blob calls authenticate
+# DefaultAzureCredential to it in both apps, so blob calls authenticate
 # as the UAI, not the system-assigned identities. Without this grant, report
 # generation succeeds but the final blob upload 403s. Diagnosed 2026-07-02 in dev.
 resource "azurerm_role_assignment" "uai_storage_blob_data_contributor" {
@@ -302,13 +287,14 @@ resource "azurerm_role_assignment" "api_storage_blob_data_contributor" {
   principal_id         = module.compute.api_principal_id
 }
 
-resource "azurerm_role_assignment" "worker_storage_blob_data_contributor" {
-  scope                = module.storage.storage_account_id
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = module.compute.worker_principal_id
-}
-
 # Foundry RBAC exists only alongside the Foundry account (saas mode).
+# Microsoft documents "Azure AI User" for the Foundry Agent Service (data plane:
+# threads/runs), but that role does not exist in this tenant (`az role
+# definition list --name "Azure AI User"` returns nothing), so assigning it
+# fails the apply with "could not find role". In this tenant "Cognitive
+# Services User" carries the Microsoft.CognitiveServices/* data actions — a
+# superset that covers the agents API as well as inference — so it is the
+# single Foundry role web, api and the UAI hold.
 resource "azurerm_role_assignment" "web_foundry_user" {
   count                = local.ai_saas ? 1 : 0
   scope                = module.ai[0].foundry_account_id
@@ -330,21 +316,6 @@ resource "azurerm_role_assignment" "uai_foundry_user" {
   principal_id         = module.identity.managed_identity_principal_id
 }
 
-# Foundry Agent Service (data plane: threads/runs) for recommendation enrichment.
-# Microsoft documents "Azure AI User" for the agents API, but that role does not
-# exist in this tenant (`az role definition list --name "Azure AI User"` returns
-# nothing), so assigning it fails the apply with "could not find role". In this
-# tenant "Cognitive Services User" carries the Microsoft.CognitiveServices/*
-# data actions — a superset that covers the agents API as well as inference —
-# so it is the single Foundry role used here. web/api/UAI already hold it
-# above; worker (agents only, no direct inference) gets it here.
-resource "azurerm_role_assignment" "worker_foundry_user" {
-  count                = local.ai_saas ? 1 : 0
-  scope                = module.ai[0].foundry_account_id
-  role_definition_name = "Cognitive Services User"
-  principal_id         = module.compute.worker_principal_id
-}
-
 
 module "security" {
   frontdoor_custom_domain_host_name  = endswith(var.nextauth_url, ".azurefd.net") ? "" : trimprefix(var.nextauth_url, "https://")
@@ -361,7 +332,6 @@ module "security" {
   web_container_app_id               = module.compute.web_id
   web_container_app_fqdn             = module.compute.web_fqdn
   container_app_environment_id       = module.compute.container_app_environment_id
-  worker_container_app_id            = module.compute.worker_id
   frontdoor_private_link_enabled     = true
   # Prevention mode — signed off per GitHub issue #111. The /auth/* exclusion
   # set (QueryStringArgNames + RequestHeaderNames) is the approved mitigation;
@@ -393,7 +363,6 @@ module "observability" {
       container_apps_environment = module.compute.container_app_environment_id
       container_app_web          = module.compute.web_id
       container_app_api          = module.compute.api_id
-      container_app_worker       = module.compute.worker_id
       key_vault                  = module.identity.key_vault_id
       storage_account            = module.storage.storage_account_id
       postgres_server            = module.database.server_id

@@ -22,6 +22,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Backlog items follow the core's W12 workflow.** `CLAUDE.md` names the loop every change goes through (spec → specialist implementation → independent adversarial verification → the checks listed there → docs → draft PR, humans merge) and this repository's definition of done; the workflow itself lives in the core's `.claude/orchestration/workflows.md`.
 - **Images are deployed by digest** (core `TODO.md` → T-701; v1.0 review findings RELEASE-001 / IMG-012). `230-image-update` now requires the core manifest's `digests{}` and composes the pinned reference `docker.io/<ns>/cna:<role>-sha-<7>@sha256:<digest>` for the api, worker, web and migrator images — the tag stays for people and for the web tier's image-update check, the digest is what the platform pulls — and passes all four to `210` (new `migrator_image` input). A manifest without `digests{}` fails the update with a message to rebuild the core first. `210-deploy` refuses empty, floating (`*-latest`), and tag-only references, drops the `migrator-latest` default and the never-working "resolve from the appliance's own build manifest" step, validates every image input with one shared `validate_image_ref` function, and records the pinned references in the release catalog. Rollback takes `previous_migrator_image` through `workflow_call`; a dispatch rollback resolves the migrator from the catalog record that matches `previous_api_image` (GitHub caps `workflow_dispatch` at ten inputs). `220-fast-redeploy` applies the same validation; `350`/`360` no longer fall back to floating tags when the catalog has no image (they fail instead); `100-validate-prereqs` checks Docker Hub pull access with an authenticated tags listing rather than by pulling `*-latest`. Terraform image variables lose their `example-namespace/*-latest` module defaults and document the pinned form. Shared change — `230`, `resolve_rollback_target.py`, `validate_image_ref` and the `update-available` issue template are byte-identical in the sibling appliance.
 
+### Removed
+- **The `cna-worker` Container App and every worker input** (core `REVIEW.md` → R-016, core
+  `TODO.md` → T-725; this repository `TODO.md` → T-109). The core retired the worker image on
+  2026-11-12: `latest-build.json` no longer carries `images.worker` / `digests.worker`, and `230`
+  failed every run at its manifest guard until this change. Terraform: `azurerm_container_app.worker`
+  (`<prefix>-ca-worker`) and the compute module's `worker_image`, `worker_env_vars` and
+  `worker_secret_env_vars` variables, its `worker_app_name` / `worker_plain_env_vars` /
+  `worker_secret_env_vars` locals and its `worker_id`, `worker_name` and `worker_principal_id`
+  outputs; the security module's unused `worker_container_app_id` variable; in both workload roots
+  the `worker_image` variable, the `worker_env_vars` map, the worker role assignments
+  `worker_storage_blob_data_contributor` (Storage Blob Data Contributor) and `worker_foundry_user`
+  (Cognitive Services User, `saas` only) with its `moved` block, the `container_app_worker`
+  diagnostic target, the worker image's host in the firewall FQDN list (all images share
+  `docker.io`, so the list is unchanged) and the `worker_name` output. No protected type
+  (`azurerm_log_analytics_workspace`, `azurerm_postgresql_flexible_server`,
+  `azurerm_storage_account`, `azurerm_cognitive_account`, `azurerm_cognitive_deployment`) or
+  protected Foundry project address is touched, so the next `210` plan destroys the worker
+  Container App and its two role assignments (one in `byo-api`) without tripping
+  `refuse_destructive_plan.py`; no `removed` block is needed here. Workflows: the `worker_image`
+  and `previous_worker_image` inputs of `210-deploy` (dispatch and `workflow_call`) and their
+  validation, pull check, signature verification, `-var` and release-catalog field; the
+  `worker_image` input, validation, signature check, `worker_app` output, "Update cna-worker
+  image" step and summary row of `220-fast-redeploy`; the worker drift pair and `-var` of
+  `350`/`360`. Shared with the AWS appliance (byte-identical): `230-image-update` (manifest guard,
+  role loop and regex, issue row), the `update-available` issue template and
+  `resolve_rollback_target.py`, which still reads release records written before this change
+  (they carry `worker_image`; it is ignored). Removing the inputs is the coordinated contract
+  change R-016 approved, made identically in both appliances. New regression tests:
+  `scripts/ci/test_workflow_regressions.py` → `RetiredWorkerTests` (230's guard, compare step,
+  detect outputs and `update-dev` inputs carry no worker; the compare step accepts a manifest with
+  and without `worker` and refuses one without `web`; no workflow, issue template or
+  `scripts/ci/*.sh` mentions the worker; no non-comment Terraform line does);
+  `scripts/ci/test_resolve_rollback_target.py` (shared with the AWS appliance, new `300-validate`
+  step) for records with and without `worker_image`; and `test_refuse_destructive_plan.py` cases
+  showing a `forget` of a protected type and the worker's own destroys both pass the guard.
+
 ### Security
 - **`230-image-update.yml` is byte-identical in both appliances** (AWS `TODO.md` → T-117). The two
   copies had drifted by about 40 lines while enforcing the same policy. The upstream-source check is now

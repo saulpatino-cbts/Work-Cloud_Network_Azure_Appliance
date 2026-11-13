@@ -32,7 +32,7 @@ locals {
   # is the zero-or-one accessor; it never indexes into an empty list.
   foundry_account_id = one(module.ai[*].foundry_account_id)
 
-  # Mode-independent runtime contract, injected into all three apps. The app
+  # Mode-independent runtime contract, injected into both apps. The app
   # resolves its engine family from these (apps/cna-web/lib/ai-engine-rules.ts,
   # cna/ai_engine/chat_agent.py).
   ai_mode_env_vars = merge({
@@ -79,7 +79,6 @@ locals {
   firewall_application_rule_fqdns = sort(distinct(concat(
     [
       split("/", var.api_image)[0],
-      split("/", var.worker_image)[0],
       split("/", var.web_image)[0],
       "index.docker.io",
       "registry-1.docker.io",

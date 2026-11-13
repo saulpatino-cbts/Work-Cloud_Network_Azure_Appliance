@@ -27,11 +27,6 @@ on:
         required: false
         default: ""
         type: string
-      worker_image:
-        description: New cna-worker image (leave empty to skip)
-        required: false
-        default: ""
-        type: string
       web_image:
         description: New cna-web image (leave empty to skip)
         required: false
@@ -67,14 +62,12 @@ jobs:
       - name: Validate — at least one image must be specified
         env:
           INPUT_API_IMAGE: ${{ inputs.api_image }}
-          INPUT_WORKER_IMAGE: ${{ inputs.worker_image }}
           INPUT_WEB_IMAGE: ${{ inputs.web_image }}
           DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
         run: |
           if [ -z "$INPUT_API_IMAGE" ] && \
-             [ -z "$INPUT_WORKER_IMAGE" ] && \
              [ -z "$INPUT_WEB_IMAGE" ]; then
-            echo "::error::At least one image (api_image, worker_image, or web_image) must be specified."
+            echo "::error::At least one image (api_image or web_image) must be specified."
             exit 1
           fi
 
@@ -105,7 +98,6 @@ jobs:
           # A fast redeploy only touches the images the caller names, so validate
           # each non-empty input and leave the empty ones to be skipped downstream.
           [ -n "$INPUT_API_IMAGE" ] && { validate_image_ref api "$INPUT_API_IMAGE" || exit 1; }
-          [ -n "$INPUT_WORKER_IMAGE" ] && { validate_image_ref worker "$INPUT_WORKER_IMAGE" || exit 1; }
           [ -n "$INPUT_WEB_IMAGE" ] && { validate_image_ref web "$INPUT_WEB_IMAGE" || exit 1; }
           true
 
@@ -146,7 +138,6 @@ jobs:
       - name: Verify image signatures and provenance
         env:
           INPUT_API_IMAGE: ${{ inputs.api_image }}
-          INPUT_WORKER_IMAGE: ${{ inputs.worker_image }}
           INPUT_WEB_IMAGE: ${{ inputs.web_image }}
           DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -157,9 +148,8 @@ jobs:
             exit 1
           fi
           echo "$DOCKERHUB_TOKEN" | docker login docker.io --username "$DOCKERHUB_NAMESPACE" --password-stdin
-          [ -n "$INPUT_API_IMAGE" ]    && scripts/ci/verify_image_signature.sh api    "$INPUT_API_IMAGE"
-          [ -n "$INPUT_WORKER_IMAGE" ] && scripts/ci/verify_image_signature.sh worker "$INPUT_WORKER_IMAGE"
-          [ -n "$INPUT_WEB_IMAGE" ]    && scripts/ci/verify_image_signature.sh web    "$INPUT_WEB_IMAGE"
+          [ -n "$INPUT_API_IMAGE" ] && scripts/ci/verify_image_signature.sh api "$INPUT_API_IMAGE"
+          [ -n "$INPUT_WEB_IMAGE" ] && scripts/ci/verify_image_signature.sh web "$INPUT_WEB_IMAGE"
           true
 
       - name: Azure login with OIDC
@@ -190,7 +180,6 @@ jobs:
 
           PREFIX="${WORKLOAD_RG#rg-}"
           echo "api_app=${PREFIX}-ca-api"       >> "$GITHUB_OUTPUT"
-          echo "worker_app=${PREFIX}-ca-worker" >> "$GITHUB_OUTPUT"
           echo "web_app=${PREFIX}-ca-web"       >> "$GITHUB_OUTPUT"
           echo "resource_group=${WORKLOAD_RG}"  >> "$GITHUB_OUTPUT"
 
@@ -205,18 +194,6 @@ jobs:
             --name "$API_APP" \
             --resource-group "$RESOURCE_GROUP" \
             --image "$API_IMAGE" --output none
-
-      - name: Update cna-worker image
-        if: inputs.worker_image != ''
-        env:
-          WORKER_IMAGE: ${{ inputs.worker_image }}
-          WORKER_APP: ${{ steps.names.outputs.worker_app }}
-          RESOURCE_GROUP: ${{ steps.names.outputs.resource_group }}
-        run: |
-          az containerapp update \
-            --name "$WORKER_APP" \
-            --resource-group "$RESOURCE_GROUP" \
-            --image "$WORKER_IMAGE" --output none
 
       - name: Update cna-web image
         if: inputs.web_image != ''
@@ -253,10 +230,8 @@ jobs:
       - name: Summary
         env:
           INPUT_API_IMAGE: ${{ inputs.api_image }}
-          INPUT_WORKER_IMAGE: ${{ inputs.worker_image }}
           INPUT_WEB_IMAGE: ${{ inputs.web_image }}
           API_APP: ${{ steps.names.outputs.api_app }}
-          WORKER_APP: ${{ steps.names.outputs.worker_app }}
           WEB_APP: ${{ steps.names.outputs.web_app }}
         run: |
           echo "## Refresh Complete" >> "$GITHUB_STEP_SUMMARY"
@@ -265,9 +240,6 @@ jobs:
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$INPUT_API_IMAGE" ]; then
             echo "| \`${API_APP}\` | \`${INPUT_API_IMAGE}\` |" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -n "$INPUT_WORKER_IMAGE" ]; then
-            echo "| \`${WORKER_APP}\` | \`${INPUT_WORKER_IMAGE}\` |" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -n "$INPUT_WEB_IMAGE" ]; then
             echo "| \`${WEB_APP}\` | \`${INPUT_WEB_IMAGE}\` |" >> "$GITHUB_STEP_SUMMARY"

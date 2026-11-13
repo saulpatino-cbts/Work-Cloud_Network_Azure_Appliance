@@ -15,13 +15,12 @@ by hand (for example after the automatic issue was closed by mistake).
 | Image | Reference |
 |---|---|
 | api | `docker.io/<namespace>/cna:api-sha-XXXXXXX@sha256:<digest>` |
-| worker | `docker.io/<namespace>/cna:worker-sha-XXXXXXX@sha256:<digest>` |
 | web | `docker.io/<namespace>/cna:web-sha-XXXXXXX@sha256:<digest>` |
 | migrator | `docker.io/<namespace>/cna:migrator-sha-XXXXXXX@sha256:<digest>` |
 
 **To apply:** open **210 · Deploy → Run workflow**, choose `environment: prod`,
 `deploy_mode: release`, the `ai_mode` prod is currently deployed with (see
 `.deployment-catalog/prod/latest.json` → `ai_mode`; never change it in an image
-update), paste the four image references, and run. The `hub` environment
+update), paste the three image references, and run. The `hub` environment
 approval gate applies. Close this issue once the prod release catalog shows the
 new `sha_tag`.

@@ -53,6 +53,8 @@ jobs:
         run: bash scripts/ci/test_runner_firewall_window.sh
       - name: Destructive plan guard regression tests
         run: python3 scripts/ci/test_refuse_destructive_plan.py
+      - name: Rollback target resolver regression tests
+        run: python3 scripts/ci/test_resolve_rollback_target.py
       - name: Workflow failure-path regression tests
         run: |
           pip install "pyyaml==6.0.3"

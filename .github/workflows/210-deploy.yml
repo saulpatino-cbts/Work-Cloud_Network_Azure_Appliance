@@ -16,11 +16,6 @@ on:
         required: false
         default: ""
         type: string
-      worker_image:
-        description: Worker image reference
-        required: false
-        default: ""
-        type: string
       web_image:
         description: Web (Next.js) image reference
         required: false
@@ -36,21 +31,16 @@ on:
         required: false
         default: ""
         type: string
-      previous_worker_image:
-        description: Previous worker image reference for rollback operations
-        required: false
-        default: ""
-        type: string
       previous_web_image:
         description: Previous web image reference for rollback operations
         required: false
         default: ""
         type: string
-      # NOTE: GitHub caps workflow_dispatch at 10 inputs. previous_migrator_image
-      # is therefore exposed on workflow_call only (below); a human rollback from
-      # the dialog leaves the previous_*_image fields empty and
-      # resolve_rollback_target.py recovers all four images — including the
-      # migrator — from the release catalog archive.
+      # NOTE: previous_migrator_image is exposed on workflow_call only (below),
+      # a choice made when GitHub's 10-input cap on workflow_dispatch was full;
+      # a human rollback from the dialog leaves the previous_*_image fields
+      # empty and resolve_rollback_target.py recovers all three images —
+      # including the migrator — from the release catalog archive.
       deploy_mode:
         description: Deployment mode
         required: true
@@ -79,10 +69,6 @@ on:
         required: false
         default: ""
         type: string
-      worker_image:
-        required: false
-        default: ""
-        type: string
       web_image:
         required: false
         default: ""
@@ -93,10 +79,6 @@ on:
         default: ""
         type: string
       previous_api_image:
-        required: false
-        default: ""
-        type: string
-      previous_worker_image:
         required: false
         default: ""
         type: string
@@ -145,7 +127,6 @@ env:
   CANARY_WEIGHT_PERCENT: "10"
   PRIMARY_WEIGHT_PERCENT: "90"
   EFFECTIVE_API_IMAGE: ""
-  EFFECTIVE_WORKER_IMAGE: ""
   EFFECTIVE_WEB_IMAGE: ""
   EFFECTIVE_MIGRATOR_IMAGE: ""
   # Image signing (core TODO.md T-703): the exact Sigstore identity the core's
@@ -224,11 +205,9 @@ jobs:
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           INPUT_API_IMAGE: ${{ inputs.api_image }}
-          INPUT_WORKER_IMAGE: ${{ inputs.worker_image }}
           INPUT_WEB_IMAGE: ${{ inputs.web_image }}
           INPUT_MIGRATOR_IMAGE: ${{ inputs.migrator_image }}
           PREVIOUS_API_IMAGE: ${{ inputs.previous_api_image }}
-          PREVIOUS_WORKER_IMAGE: ${{ inputs.previous_worker_image }}
           PREVIOUS_WEB_IMAGE: ${{ inputs.previous_web_image }}
           PREVIOUS_MIGRATOR_IMAGE: ${{ inputs.previous_migrator_image }}
         run: |
@@ -262,8 +241,8 @@ jobs:
             return 1
           }
 
-          # workflow_dispatch has no previous_migrator_image input (ten-input
-          # cap), so a rollback takes the migrator from the release-catalog
+          # workflow_dispatch has no previous_migrator_image input (call-only, see
+          # the NOTE at the inputs), so a rollback takes the migrator from the release-catalog
           # record that deployed previous_api_image unless the caller passed it.
           if [ "$DEPLOY_MODE" = "rollback" ] && [ -z "$PREVIOUS_MIGRATOR_IMAGE" ] && [ -n "$PREVIOUS_API_IMAGE" ]; then
             PREVIOUS_MIGRATOR_IMAGE=$(jq -r --arg a "$PREVIOUS_API_IMAGE" 'select(.api_image == $a) | .migrator_image // empty' \
@@ -271,27 +250,23 @@ jobs:
           fi
 
           if [ "$DEPLOY_MODE" = "rollback" ]; then
-            if [[ -z "$PREVIOUS_API_IMAGE" || -z "$PREVIOUS_WORKER_IMAGE" || -z "$PREVIOUS_WEB_IMAGE" || -z "$PREVIOUS_MIGRATOR_IMAGE" ]]; then
-              echo "::error::Rollback requires previous_api_image, previous_worker_image and previous_web_image, plus a migrator: previous_migrator_image (workflow_call) or a release-catalog record under .deployment-catalog/<env>/ whose api_image matches previous_api_image. Copy the references from latest.json or a <run_id>.json archive."
+            if [[ -z "$PREVIOUS_API_IMAGE" || -z "$PREVIOUS_WEB_IMAGE" || -z "$PREVIOUS_MIGRATOR_IMAGE" ]]; then
+              echo "::error::Rollback requires previous_api_image and previous_web_image, plus a migrator: previous_migrator_image (workflow_call) or a release-catalog record under .deployment-catalog/<env>/ whose api_image matches previous_api_image. Copy the references from latest.json or a <run_id>.json archive."
               exit 1
             fi
             API_IMAGE="$PREVIOUS_API_IMAGE"
-            WORKER_IMAGE="$PREVIOUS_WORKER_IMAGE"
             WEB_IMAGE="$PREVIOUS_WEB_IMAGE"
             MIGRATOR_IMAGE="$PREVIOUS_MIGRATOR_IMAGE"
           else
             API_IMAGE="$INPUT_API_IMAGE"
-            WORKER_IMAGE="$INPUT_WORKER_IMAGE"
             WEB_IMAGE="$INPUT_WEB_IMAGE"
             MIGRATOR_IMAGE="$INPUT_MIGRATOR_IMAGE"
           fi
           validate_image_ref api "$API_IMAGE"
-          validate_image_ref worker "$WORKER_IMAGE"
           validate_image_ref web "$WEB_IMAGE"
           validate_image_ref migrator "$MIGRATOR_IMAGE"
           {
             echo "EFFECTIVE_API_IMAGE=$API_IMAGE"
-            echo "EFFECTIVE_WORKER_IMAGE=$WORKER_IMAGE"
             echo "EFFECTIVE_WEB_IMAGE=$WEB_IMAGE"
             echo "EFFECTIVE_MIGRATOR_IMAGE=$MIGRATOR_IMAGE"
           } >> "$GITHUB_ENV"
@@ -360,7 +335,6 @@ jobs:
 
           for image in \
             "$EFFECTIVE_API_IMAGE" \
-            "$EFFECTIVE_WORKER_IMAGE" \
             "$EFFECTIVE_WEB_IMAGE" \
             "$EFFECTIVE_MIGRATOR_IMAGE"; do
             echo "Checking $image"
@@ -381,7 +355,6 @@ jobs:
         run: |
           set -euo pipefail
           "$GITHUB_WORKSPACE"/scripts/ci/verify_image_signature.sh api      "$EFFECTIVE_API_IMAGE"
-          "$GITHUB_WORKSPACE"/scripts/ci/verify_image_signature.sh worker   "$EFFECTIVE_WORKER_IMAGE"
           "$GITHUB_WORKSPACE"/scripts/ci/verify_image_signature.sh web      "$EFFECTIVE_WEB_IMAGE"
           "$GITHUB_WORKSPACE"/scripts/ci/verify_image_signature.sh migrator "$EFFECTIVE_MIGRATOR_IMAGE"
 
@@ -481,7 +454,6 @@ jobs:
     # job's re-plan would see empty image vars and fail container-app validation.
     outputs:
       api_image: ${{ steps.resolve_images.outputs.api_image }}
-      worker_image: ${{ steps.resolve_images.outputs.worker_image }}
       web_image: ${{ steps.resolve_images.outputs.web_image }}
       migrator_image: ${{ steps.resolve_images.outputs.migrator_image }}
     steps:
@@ -555,7 +527,7 @@ jobs:
           python-version: "3.12"
 
       - name: Resolve rollback targets from release catalog
-        if: inputs.deploy_mode == 'rollback' && (inputs.previous_api_image == '' || inputs.previous_worker_image == '' || inputs.previous_web_image == '')
+        if: inputs.deploy_mode == 'rollback' && (inputs.previous_api_image == '' || inputs.previous_web_image == '')
         env:
           CATALOG_DIR: $GITHUB_WORKSPACE/.deployment-catalog/${{ inputs.environment }}
         run: python3 $GITHUB_WORKSPACE/scripts/ci/resolve_rollback_target.py
@@ -696,8 +668,8 @@ jobs:
           done
 
       # $GITHUB_ENV does not cross jobs, so the plan job resolves the image set
-      # again from the same inputs the policy gates validated: the four
-      # *_image inputs for a release, the four previous_*_image inputs (or what
+      # again from the same inputs the policy gates validated: the three
+      # *_image inputs for a release, the three previous_*_image inputs (or what
       # resolve_rollback_target.py read from the catalog) for a rollback. Every
       # reference is re-validated here — including the catalog's — and then
       # published as job outputs for the apply job. No build manifest is read:
@@ -709,11 +681,9 @@ jobs:
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           INPUT_API_IMAGE: ${{ inputs.api_image }}
-          INPUT_WORKER_IMAGE: ${{ inputs.worker_image }}
           INPUT_WEB_IMAGE: ${{ inputs.web_image }}
           INPUT_MIGRATOR_IMAGE: ${{ inputs.migrator_image }}
           PREVIOUS_API_IMAGE: ${{ inputs.previous_api_image }}
-          PREVIOUS_WORKER_IMAGE: ${{ inputs.previous_worker_image }}
           PREVIOUS_WEB_IMAGE: ${{ inputs.previous_web_image }}
           PREVIOUS_MIGRATOR_IMAGE: ${{ inputs.previous_migrator_image }}
         run: |
@@ -742,8 +712,8 @@ jobs:
             return 1
           }
 
-          # workflow_dispatch has no previous_migrator_image input (ten-input
-          # cap), so a rollback takes the migrator from the release-catalog
+          # workflow_dispatch has no previous_migrator_image input (call-only, see
+          # the NOTE at the inputs), so a rollback takes the migrator from the release-catalog
           # record that deployed previous_api_image unless the caller passed it.
           if [ "$DEPLOY_MODE" = "rollback" ] && [ -z "$PREVIOUS_MIGRATOR_IMAGE" ] && [ -n "$PREVIOUS_API_IMAGE" ]; then
             PREVIOUS_MIGRATOR_IMAGE=$(jq -r --arg a "$PREVIOUS_API_IMAGE" 'select(.api_image == $a) | .migrator_image // empty' \
@@ -753,22 +723,18 @@ jobs:
           if [ "$DEPLOY_MODE" = "rollback" ]; then
             # EFFECTIVE_* is already set when resolve_rollback_target.py ran.
             API_IMG="${EFFECTIVE_API_IMAGE:-$PREVIOUS_API_IMAGE}"
-            WORKER_IMG="${EFFECTIVE_WORKER_IMAGE:-$PREVIOUS_WORKER_IMAGE}"
             WEB_IMG="${EFFECTIVE_WEB_IMAGE:-$PREVIOUS_WEB_IMAGE}"
             MIGRATOR_IMG="${EFFECTIVE_MIGRATOR_IMAGE:-$PREVIOUS_MIGRATOR_IMAGE}"
           else
             API_IMG="$INPUT_API_IMAGE"
-            WORKER_IMG="$INPUT_WORKER_IMAGE"
             WEB_IMG="$INPUT_WEB_IMAGE"
             MIGRATOR_IMG="$INPUT_MIGRATOR_IMAGE"
           fi
           validate_image_ref api "$API_IMG"
-          validate_image_ref worker "$WORKER_IMG"
           validate_image_ref web "$WEB_IMG"
           validate_image_ref migrator "$MIGRATOR_IMG"
           {
             echo "EFFECTIVE_API_IMAGE=${API_IMG}"
-            echo "EFFECTIVE_WORKER_IMAGE=${WORKER_IMG}"
             echo "EFFECTIVE_WEB_IMAGE=${WEB_IMG}"
             echo "EFFECTIVE_MIGRATOR_IMAGE=${MIGRATOR_IMG}"
           } >> "$GITHUB_ENV"
@@ -776,13 +742,11 @@ jobs:
           # deploys exactly the references planned here.
           {
             echo "api_image=${API_IMG}"
-            echo "worker_image=${WORKER_IMG}"
             echo "web_image=${WEB_IMG}"
             echo "migrator_image=${MIGRATOR_IMG}"
           } >> "$GITHUB_OUTPUT"
           echo "Pinned images:"
           echo "  api:      ${API_IMG}"
-          echo "  worker:   ${WORKER_IMG}"
           echo "  web:      ${WEB_IMG}"
           echo "  migrator: ${MIGRATOR_IMG}"
 
@@ -877,7 +841,6 @@ jobs:
             -var="github_owner=${{ github.repository_owner }}" \
             -var="github_repository=${GITHUB_REPOSITORY#*/}" \
             -var="api_image=${EFFECTIVE_API_IMAGE}" \
-            -var="worker_image=${EFFECTIVE_WORKER_IMAGE}" \
             -var="web_image=${EFFECTIVE_WEB_IMAGE}" \
             -var="entra_client_id=${VAR_ENTRA_CLIENT_ID}" \
             -var="nextauth_url=${VAR_NEXTAUTH_URL}" \
@@ -905,7 +868,6 @@ jobs:
             --arg source_repo "$SOURCE_REPO" \
             --arg source_manifest_run_id "$SOURCE_MANIFEST_RUN_ID" \
             --arg api_image "$EFFECTIVE_API_IMAGE" \
-            --arg worker_image "$EFFECTIVE_WORKER_IMAGE" \
             --arg web_image "$EFFECTIVE_WEB_IMAGE" \
             --arg migrator_image "$EFFECTIVE_MIGRATOR_IMAGE" \
             --arg commit_sha "$GITHUB_SHA" \
@@ -919,7 +881,6 @@ jobs:
               source_repo: $source_repo,
               source_manifest_run_id: $source_manifest_run_id,
               api_image: $api_image,
-              worker_image: $worker_image,
               web_image: $web_image,
               migrator_image: $migrator_image,
               commit_sha: $commit_sha,
@@ -1004,7 +965,6 @@ jobs:
     # ("template.0.container.0.image to not be an empty string").
     env:
       EFFECTIVE_API_IMAGE: ${{ needs.plan.outputs.api_image }}
-      EFFECTIVE_WORKER_IMAGE: ${{ needs.plan.outputs.worker_image }}
       EFFECTIVE_WEB_IMAGE: ${{ needs.plan.outputs.web_image }}
       EFFECTIVE_MIGRATOR_IMAGE: ${{ needs.plan.outputs.migrator_image }}
     outputs:
@@ -1302,7 +1262,6 @@ jobs:
             -var="github_owner=${{ github.repository_owner }}" \
             -var="github_repository=${GITHUB_REPOSITORY#*/}" \
             -var="api_image=${EFFECTIVE_API_IMAGE}" \
-            -var="worker_image=${EFFECTIVE_WORKER_IMAGE}" \
             -var="web_image=${EFFECTIVE_WEB_IMAGE}" \
             -var="entra_client_id=${VAR_ENTRA_CLIENT_ID}" \
             -var="nextauth_url=${VAR_NEXTAUTH_URL}" \

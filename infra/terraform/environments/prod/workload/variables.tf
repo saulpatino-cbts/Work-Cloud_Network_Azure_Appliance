@@ -7,11 +7,6 @@ variable "api_image" {
   type        = string
 }
 
-variable "worker_image" {
-  description = "Container image for CNA worker, pinned reference docker.io/<namespace>/cna:worker-sha-<7>@sha256:<digest>"
-  type        = string
-}
-
 variable "web_image" {
   description = "Container image for CNA web, pinned reference docker.io/<namespace>/cna:web-sha-<7>@sha256:<digest>"
   type        = string

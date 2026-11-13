@@ -4,7 +4,7 @@
 
 This repository deploys and operates the **Cloud Network Assessment platform on Azure**.
 It contains the Azure Terraform and the workflows that deploy, update, watch and tear
-down an environment — and nothing else. The application itself (web, API, worker, CLI) lives in
+down an environment — and nothing else. The application itself (web, API, CLI) lives in
 the **core** repository, [`Work-Cloud_Network_Core`](https://github.com/saulpatino-cbts/Work-Cloud_Network_Core),
 which builds the container images this appliance runs. Features ship once, in those images; this
 appliance picks them up.
@@ -195,7 +195,7 @@ state account and container. This creates/imports the workload RG and initialize
 review its effects before approval. Secure the state account as secret-bearing storage: restrict
 blob readers/writers, enable the client's version/backup/recovery controls, keep dev/prod state
 and access separate, and record a tested recovery process. Do not download state into tickets.
-Run `100` and resolve failures, then `300` local/CI gates before release. Supply all four verified
+Run `100` and resolve failures, then `300` local/CI gates before release. Supply all three verified
 digest-pinned image references and select `ai_mode` in `210`. Platform plans/applies first;
 workload is re-planned after platform exists, then applied. The production approval precedes the
 apply job's fresh plan: it is **not** approval of a previously exported immutable plan. The
@@ -275,7 +275,7 @@ HTTPS egress rules. No wildcard or arbitrary hostname is accepted. API keys are 
 the app's AI Engine page by an authorized admin, never in Terraform, workflow inputs, repo
 Variables, or this runbook. This selection configures Azure network rules only; it is not
 proof that Python traffic traverses those rules. In BYO mode, both workload roots also inject
-the same JSON `CNA_BYO_AI_PROVIDERS` list into web and API (and the shared worker environment),
+the same JSON `CNA_BYO_AI_PROVIDERS` list into web and API,
 requiring `CNA_AI_ENGINE_DEFAULT` to be in that list. SaaS omits this runtime variable.
 The coordinator reports that the Core allowlist reader now exists locally; it is not yet
 published or verified in deployed images. Azure's local wiring is implemented, but application
@@ -348,8 +348,8 @@ operator process rather than purging, changing state, or broadening identities t
      both, a toggle on the same page chooses.
 
    The image inputs are **pinned references** of the form
-   `docker.io/<namespace>/cna:<role>-sha-<7>@sha256:<digest>` — supply one per role (api, worker,
-   web, migrator). `230 · Image Update` fills them in automatically; to run `210` by hand, copy them
+   `docker.io/<namespace>/cna:<role>-sha-<7>@sha256:<digest>` — supply one per role (api, web,
+   migrator). `230 · Image Update` fills them in automatically; to run `210` by hand, copy them
    from the core's `.deployment-catalog/latest-build.json` (`images.<role>` + `digests.<role>`) or
    from the `update-available` issue. Floating tags (`*-latest`, `:latest`), tag-only references,
    and empty values are refused. All `prod` deployment jobs run under `hub` and wait for its
@@ -376,7 +376,7 @@ An environment that has never been deployed is never touched by `230`.
 
 ### Everything else
 
-- **Rollback:** `210` with `deploy_mode: rollback` and the three `previous_*_image` references
+- **Rollback:** `210` with `deploy_mode: rollback` and the two `previous_*_image` references
   from `.deployment-catalog/<env>/latest.json` (or a `<run_id>.json` archive); the migrator comes
   from the same catalog record (`workflow_call` callers may pass `previous_migrator_image`).
 - **Emergency image swap:** `220` — fast, but it bypasses Terraform and the catalog; follow with a

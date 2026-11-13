@@ -46,10 +46,6 @@ output "web_name" {
   value       = module.compute.web_name
 }
 
-output "worker_name" {
-  value = module.compute.worker_name
-}
-
 # All four are null in byo-api mode (module.ai has count 0).
 output "foundry_resource_group_name" {
   value = one(module.ai[*].foundry_resource_group_name)

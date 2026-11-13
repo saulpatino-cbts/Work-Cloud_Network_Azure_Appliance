@@ -49,7 +49,6 @@ jobs:
     outputs:
       sha_tag: ${{ steps.compare.outputs.sha_tag }}
       api_image: ${{ steps.compare.outputs.api_image }}
-      worker_image: ${{ steps.compare.outputs.worker_image }}
       web_image: ${{ steps.compare.outputs.web_image }}
       migrator_image: ${{ steps.compare.outputs.migrator_image }}
       source_repo: ${{ steps.compare.outputs.source_repo }}
@@ -129,7 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           M=/tmp/latest-build.json
-          jq -e '.sha_tag and .images.api and .images.worker and .images.web' "$M" >/dev/null \
+          jq -e '.sha_tag and .images.api and .images.web' "$M" >/dev/null \
             || { echo "::error::Manifest is missing sha_tag or image references."; cat "$M"; exit 1; }
 
           if ! printf '%s' "$DOCKERHUB_NAMESPACE" | grep -Eq '^[a-z0-9][a-z0-9_-]{1,254}$'; then
@@ -141,10 +140,10 @@ jobs:
             echo "::error::Manifest sha_tag '${SHA_TAG}' is not of the form sha-<7 hex>."
             exit 1
           fi
-          for ROLE in api worker web migrator; do
+          for ROLE in api web migrator; do
             IMG=$(jq -r --arg r "$ROLE" '.images[$r] // empty' "$M")
             [ -z "$IMG" ] && [ "$ROLE" = "migrator" ] && continue
-            if ! printf '%s' "$IMG" | grep -Eq "^docker\.io/${DOCKERHUB_NAMESPACE}/cna:(api|web|worker|migrator)-sha-[0-9a-f]{7}$"; then
+            if ! printf '%s' "$IMG" | grep -Eq "^docker\.io/${DOCKERHUB_NAMESPACE}/cna:(api|web|migrator)-sha-[0-9a-f]{7}$"; then
               echo "::error::images.${ROLE} is not an immutable image of this appliance (expected docker.io/${DOCKERHUB_NAMESPACE}/cna:<role>-sha-<7 hex>)."
               exit 1
             fi
@@ -177,7 +176,6 @@ jobs:
             printf '%s@%s' "$IMG" "${DIG##*@}"
           }
           API_IMAGE=$(compose_ref api)
-          WORKER_IMAGE=$(compose_ref worker)
           WEB_IMAGE=$(compose_ref web)
           MIGRATOR_IMAGE=""
           if [ -n "$(jq -r '.images.migrator // empty' "$M")" ]; then
@@ -186,7 +184,6 @@ jobs:
           {
             echo "sha_tag=$SHA_TAG"
             echo "api_image=${API_IMAGE}"
-            echo "worker_image=${WORKER_IMAGE}"
             echo "web_image=${WEB_IMAGE}"
             echo "migrator_image=${MIGRATOR_IMAGE}"
             echo "source_repo=${CORE_OWNER}/${CORE_REPO:-unknown}"
@@ -230,7 +227,6 @@ jobs:
       deploy_mode: release
       ai_mode: ${{ needs.detect.outputs.dev_ai_mode }}
       api_image: ${{ needs.detect.outputs.api_image }}
-      worker_image: ${{ needs.detect.outputs.worker_image }}
       web_image: ${{ needs.detect.outputs.web_image }}
       migrator_image: ${{ needs.detect.outputs.migrator_image }}
       source_repo: ${{ needs.detect.outputs.source_repo }}
@@ -247,7 +243,6 @@ jobs:
       REPO: ${{ github.repository }}
       SHA_TAG: ${{ needs.detect.outputs.sha_tag }}
       API_IMAGE: ${{ needs.detect.outputs.api_image }}
-      WORKER_IMAGE: ${{ needs.detect.outputs.worker_image }}
       WEB_IMAGE: ${{ needs.detect.outputs.web_image }}
       MIGRATOR_IMAGE: ${{ needs.detect.outputs.migrator_image }}
       AI_MODE: ${{ needs.detect.outputs.prod_ai_mode }}
@@ -279,13 +274,12 @@ jobs:
           | Image | Reference |
           |---|---|
           | api | \`${API_IMAGE}\` |
-          | worker | \`${WORKER_IMAGE}\` |
           | web | \`${WEB_IMAGE}\` |
           | migrator | \`${MIGRATOR_IMAGE}\` |
 
           Built by \`${SOURCE_REPO}\` run \`${SOURCE_RUN_ID}\` (\`${SHA_TAG}\`).
 
-          **To apply:** open [210 · Deploy → Run workflow](${RUN_URL}), choose \`environment: prod\`, \`deploy_mode: release\`, **\`ai_mode: ${AI_MODE}\`** (the mode prod is deployed with — do not change it here), paste the four image references above, and run. The \`hub\` environment approval gate applies. Close this issue once the release catalog under \`.deployment-catalog/prod/\` shows \`${SHA_TAG}\`.
+          **To apply:** open [210 · Deploy → Run workflow](${RUN_URL}), choose \`environment: prod\`, \`deploy_mode: release\`, **\`ai_mode: ${AI_MODE}\`** (the mode prod is deployed with — do not change it here), paste the three image references above, and run. The \`hub\` environment approval gate applies. Close this issue once the release catalog under \`.deployment-catalog/prod/\` shows \`${SHA_TAG}\`.
 
           _Opened automatically by 230 · Image Update._
           EOF

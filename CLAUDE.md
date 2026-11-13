@@ -12,7 +12,7 @@ watch and tear down an environment. It runs container images built by the
 
 - **Application code never lives here.** No `apps/`, no `cna/`, no Dockerfiles.
   A feature is implemented once in the core; both appliances receive it through
-  the images (`docker.io/<namespace>/cna:{api,worker,web,migrator}-sha-<7>`).
+  the images (`docker.io/<namespace>/cna:{api,web,migrator}-sha-<7>`).
 - **Nothing for AWS lives here.** The sibling appliance is
   <https://github.com/saulpatino-cbts/Work-Cloud_Network_AWS_Appliance>. Do not add AWS
   Terraform, actions, secrets, regions or wording to this repository.
