@@ -138,6 +138,15 @@ jobs:
             -backend-config="key=dev.workload.terraform.tfstate" \
             -backend-config="use_oidc=true"
 
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          client-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       # Key Vault is deny-by-default (default_action = Deny). The workload drift
       # plan refreshes KV secret resources over the data plane, so the runner's
       # public IP must be allow-listed first (removed again at the end).
@@ -244,7 +253,7 @@ jobs:
           TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           TF_VAR_container_registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
           TF_VAR_credential_encryption_key: ${{ secrets.CNA_CREDENTIAL_ENCRYPTION_KEY }}
-          TF_VAR_github_token: ""
+          TF_VAR_github_token: ${{ steps.app-token.outputs.token }}
           TF_VAR_local_admin_password: ${{ secrets.LOCAL_ADMIN_PASSWORD }}
         run: |
           [ -n "$TF_VAR_local_admin_password" ] || unset TF_VAR_local_admin_password
