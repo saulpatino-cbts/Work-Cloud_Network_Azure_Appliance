@@ -192,6 +192,27 @@ class WorkflowRegressionTests(unittest.TestCase):
                         self.assertTrue(str((step.get("with") or {}).get("repositories", "")).strip())
         self.assertGreaterEqual(found, 3)
 
+    def test_drift_workload_plans_use_scoped_app_tokens(self):
+        for path in (WORKFLOWS / "350-drift-dev.yml", WORKFLOWS / "360-drift-prod.yml"):
+            with self.subTest(workflow=path.name):
+                workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+                steps = workflow["jobs"]["drift-detection"]["steps"]
+                token_index = next(
+                    n
+                    for n, step in enumerate(steps)
+                    if str(step.get("uses", "")).startswith("actions/create-github-app-token@")
+                )
+                plan_index = next(
+                    n
+                    for n, step in enumerate(steps)
+                    if step.get("name") == "Terraform drift plan (workload)"
+                )
+                self.assertLess(token_index, plan_index)
+                self.assertEqual(
+                    steps[plan_index]["env"]["TF_VAR_github_token"],
+                    "${{ steps.app-token.outputs.token }}",
+                )
+
     def test_firewall_negative_assertion_detects_mutation(self):
         source = (ROOT / "scripts" / "ci" / "test_runner_firewall_window.sh").read_text(encoding="utf-8")
         source = source.replace(
